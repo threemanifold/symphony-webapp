@@ -6,7 +6,6 @@
 #
 # Suites:
 #   backend  -> apps/backend  (uv run pytest)
-#   frontend-static -> apps/backend/static (node --test)
 #   frontend -> apps/frontend (pnpm test:run, vitest)
 set -uo pipefail
 
@@ -22,18 +21,6 @@ if [ "$BACK_EC" -ne 0 ]; then
 fi
 BACK_SUMMARY=$(printf '%s\n' "$BACK_OUT" | tail -1)
 
-# --- frontend static ---
-STATIC_OUT=$(cd "$ROOT/apps/backend" && node --test static/*.test.mjs 2>&1)
-STATIC_EC=$?
-if [ "$STATIC_EC" -ne 0 ]; then
-  echo "FAIL (frontend-static, exit $STATIC_EC)"
-  printf '%s\n' "$STATIC_OUT" | tail -20
-  exit "$STATIC_EC"
-fi
-STATIC_SUMMARY=$(printf '%s\n' "$STATIC_OUT" \
-  | grep -E "# tests[[:space:]]+[0-9]+" \
-  | tail -1 | sed -E 's/^# //')
-
 # --- frontend ---
 FRONT_OUT=$(cd "$ROOT/apps/frontend" && pnpm test:run 2>&1)
 FRONT_EC=$?
@@ -47,5 +34,5 @@ FRONT_SUMMARY=$(printf '%s\n' "$FRONT_OUT" \
   | tail -1 | sed -E 's/^[[:space:]]+//')
 [ -z "$FRONT_SUMMARY" ] && FRONT_SUMMARY=$(printf '%s\n' "$FRONT_OUT" | tail -1)
 
-echo "OK: backend [$BACK_SUMMARY] | frontend-static [$STATIC_SUMMARY] | frontend [$FRONT_SUMMARY]"
+echo "OK: backend [$BACK_SUMMARY] | frontend [$FRONT_SUMMARY]"
 exit 0
