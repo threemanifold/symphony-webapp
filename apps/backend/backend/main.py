@@ -1,15 +1,7 @@
-from pathlib import Path
-
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 app = FastAPI(title="symphony-webapp backend")
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-
-
-class Greeting(BaseModel):
-    message: str
 
 
 class ChatRequest(BaseModel):
@@ -25,14 +17,6 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/hello/{name}", response_model=Greeting)
-def hello(name: str) -> Greeting:
-    return Greeting(message=f"Hello, {name}!")
-
-
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     return ChatResponse(response=f"{request.message}, this is symphony")
-
-
-app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

@@ -11,19 +11,9 @@ def test_health() -> None:
     assert resp.json() == {"status": "ok"}
 
 
-def test_static_chat_page() -> None:
+def test_root_does_not_serve_static_chat_page() -> None:
     resp = client.get("/")
-    assert resp.status_code == 200
-    assert "Symphony Chat" in resp.text
-    assert "data-chat-input" in resp.text
-    assert "data-chat-submit" in resp.text
-    assert "data-chat-output" in resp.text
-
-
-def test_hello() -> None:
-    resp = client.get("/hello/world")
-    assert resp.status_code == 200
-    assert resp.json() == {"message": "Hello, world!"}
+    assert resp.status_code == 404
 
 
 def test_chat_normal_input() -> None:
