@@ -43,6 +43,10 @@ Single command runs both suites with terse output (used by Codex):
 pnpm test            # ./.codex/scripts/run-tests.sh
 ```
 
+The static chat UI tests run with Node's built-in `node:test` runner from
+`apps/backend/static`. They cover pure formatting and fetch wiring without a DOM
+emulation dependency.
+
 Or per-side:
 
 ```sh
