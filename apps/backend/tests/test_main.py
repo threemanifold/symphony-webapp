@@ -15,9 +15,9 @@ def test_static_chat_page() -> None:
     resp = client.get("/")
     assert resp.status_code == 200
     assert "Symphony Chat" in resp.text
-    assert 'data-chat-input' in resp.text
-    assert 'data-chat-submit' in resp.text
-    assert 'data-chat-output' in resp.text
+    assert "data-chat-input" in resp.text
+    assert "data-chat-submit" in resp.text
+    assert "data-chat-output" in resp.text
 
 
 def test_hello() -> None:
