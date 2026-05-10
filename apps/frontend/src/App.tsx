@@ -1,9 +1,15 @@
 import type { FormEvent } from 'react';
 import { useState } from 'react';
 
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
 function App() {
   const [message, setMessage] = useState('');
-  const [response, setResponse] = useState('Response will appear here.');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [status, setStatus] = useState('Response will appear here.');
   const [isSending, setIsSending] = useState(false);
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
@@ -11,12 +17,19 @@ function App() {
 
     const trimmedMessage = message.trim();
     if (!trimmedMessage) {
-      setResponse('Enter a message to send.');
+      setStatus('Enter a message to send.');
       return;
     }
 
+    const nextMessages: ChatMessage[] = [
+      ...messages,
+      { role: 'user', content: trimmedMessage },
+    ];
+
+    setMessages(nextMessages);
+    setMessage('');
     setIsSending(true);
-    setResponse('Sending...');
+    setStatus('Sending...');
 
     try {
       const chatResponse = await fetch('/chat', {
@@ -24,17 +37,33 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: trimmedMessage }),
+        body: JSON.stringify({ messages: nextMessages }),
       });
 
       if (!chatResponse.ok) {
         throw new Error(`Chat request failed with ${chatResponse.status}`);
       }
 
-      const payload = (await chatResponse.json()) as { response?: string };
-      setResponse(payload.response?.trim() || 'No response returned.');
+      const payload = (await chatResponse.json()) as {
+        message?: ChatMessage;
+        response?: string;
+      };
+      const assistantMessage = payload.message ?? {
+        role: 'assistant',
+        content: payload.response ?? '',
+      };
+      const assistantContent = assistantMessage.content.trim();
+
+      setMessages([
+        ...nextMessages,
+        {
+          role: 'assistant',
+          content: assistantContent || 'No response returned.',
+        },
+      ]);
+      setStatus('');
     } catch {
-      setResponse('Unable to send message. Try again.');
+      setStatus('Unable to send message. Try again.');
     } finally {
       setIsSending(false);
     }
@@ -59,7 +88,17 @@ function App() {
         </button>
       </form>
       <output className="chat-output" aria-live="polite">
-        {response}
+        {messages.length > 0 && (
+          <div className="chat-history">
+            {messages.map((chatMessage, index) => (
+              <p key={`${chatMessage.role}-${index}`}>
+                <strong>{chatMessage.role === 'user' ? 'You' : 'Symphony'}:</strong>{' '}
+                {chatMessage.content}
+              </p>
+            ))}
+          </div>
+        )}
+        {status && <p>{status}</p>}
       </output>
     </main>
   );
