@@ -44,14 +44,8 @@ function App() {
         throw new Error(`Chat request failed with ${chatResponse.status}`);
       }
 
-      const payload = (await chatResponse.json()) as {
-        message?: ChatMessage;
-        response?: string;
-      };
-      const assistantMessage = payload.message ?? {
-        role: 'assistant',
-        content: payload.response ?? '',
-      };
+      const payload = (await chatResponse.json()) as { message: ChatMessage };
+      const assistantMessage = payload.message;
       const assistantContent = assistantMessage.content.trim();
 
       setMessages([

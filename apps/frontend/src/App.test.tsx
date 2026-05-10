@@ -18,7 +18,7 @@ describe('App', () => {
     expect(screen.getByText('Response will appear here.')).toBeInTheDocument();
   });
 
-  it('sends the full message history and keeps prior turns visible', async () => {
+  it('sends the full message history and renders backend-shaped echo responses', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
@@ -30,7 +30,10 @@ describe('App', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          message: { role: 'assistant', content: 'second response' },
+          message: {
+            role: 'assistant',
+            content: 'second message, this is symphony',
+          },
         }),
       } as Response);
     render(<App />);
@@ -47,12 +50,14 @@ describe('App', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
-    await screen.findByText('second response');
+    await screen.findByText('second message, this is symphony');
 
     expect(screen.getByText('hello')).toBeInTheDocument();
     expect(screen.getByText('hello, this is symphony')).toBeInTheDocument();
     expect(screen.getByText('second message')).toBeInTheDocument();
-    expect(screen.getByText('second response')).toBeInTheDocument();
+    expect(
+      screen.getByText('second message, this is symphony'),
+    ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/chat', {
       method: 'POST',
       headers: {
