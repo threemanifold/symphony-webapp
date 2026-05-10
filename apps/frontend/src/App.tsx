@@ -65,6 +65,17 @@ function App() {
 
   return (
     <main className="chat-shell">
+      <svg
+        className="chat-mark"
+        viewBox="0 0 96 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path d="M10 17c8-8 14-8 22 0s14 8 22 0 14-8 22 0 14 8 22 0" />
+        <path d="M21 7v10" />
+        <path d="M48 4v16" />
+        <path d="M75 7v10" />
+      </svg>
       <h1>Symphony Chat</h1>
       <form className="chat-form" onSubmit={sendMessage}>
         <label htmlFor="message">Message</label>

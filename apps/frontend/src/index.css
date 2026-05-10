@@ -27,6 +27,19 @@ body {
   width: min(100%, 680px);
 }
 
+.chat-mark {
+  display: block;
+  width: 96px;
+  height: 24px;
+  margin: 0 0 12px;
+  color: #0b7285;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
 h1 {
   margin: 0 0 18px;
   font-size: clamp(2rem, 8vw, 3.75rem);
