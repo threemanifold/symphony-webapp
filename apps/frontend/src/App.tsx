@@ -123,6 +123,7 @@ function App() {
       return;
     }
 
+    const conversationId = selectedConversationId;
     let ignore = false;
 
     async function loadConversation() {
@@ -130,12 +131,12 @@ function App() {
       setStatus('Loading conversation...');
       window.localStorage.setItem(
         selectedConversationStorageKey,
-        selectedConversationId,
+        conversationId,
       );
 
       try {
         const payload = await parseJson<ConversationDetail>(
-          await fetch(`/conversations/${selectedConversationId}`),
+          await fetch(`/conversations/${conversationId}`),
         );
 
         if (ignore) {
