@@ -1,0 +1,32 @@
+---
+name: walkthrough
+description: Produce a video walkthrough of a UI flow via Playwright (recording + delivery).
+---
+
+# Walkthrough
+
+## Run
+
+    ./.codex/scripts/record-walkthrough.sh
+
+Pass a spec path to record one test only:
+
+    ./.codex/scripts/record-walkthrough.sh e2e/chat.spec.ts
+
+The script runs `pnpm e2e`, copies each produced `.webm` to the delivery dir, and prints a path list. Exits non-zero with `FAIL ...` if any test fails.
+
+## Writing a watchable narrative test
+
+Walkthrough tests are **narrative scripts**, not regression checks. Different rules from `vitest`:
+
+- Place under `apps/frontend/e2e/`. One spec per walkthrough.
+- **Pace the flow.** After each visible action (fill, click), add `await page.waitForTimeout(500)` so the viewer can read the screen. End every test with `await page.waitForTimeout(1500)` so the recording doesn't cut mid-render.
+- **No mid-flow asserts.** A walkthrough that fails halfway leaves a useless clip. Drive the UI all the way through, then assert at the end.
+- **Mock external calls** with `page.route('**/chat', ...)` unless the test specifically targets backend integration. Real backend = slow, costs tokens, flaky video.
+- **Scroll into view** before clicking off-screen elements: `await target.scrollIntoViewIfNeeded()`.
+- **Locator priority:** `getByRole` > `getByLabel` > `getByText` > CSS. Stable across refactors.
+- Don't override the viewport per-test; the config default (1280×720) is the walkthrough standard.
+
+## Reference: existing spec
+
+`apps/frontend/e2e/chat.spec.ts` is a canonical example — mocked `/chat` route, paced steps, end-of-test assertions, final pause. Copy its shape when adding a new walkthrough.
