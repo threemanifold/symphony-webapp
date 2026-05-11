@@ -27,6 +27,4 @@ Walkthrough tests are **narrative scripts**, not regression checks. Different ru
 - **Locator priority:** `getByRole` > `getByLabel` > `getByText` > CSS. Stable across refactors.
 - Don't override the viewport per-test; the config default (1280×720) is the walkthrough standard.
 
-## Reference: existing spec
-
-`apps/frontend/e2e/chat.spec.ts` is a canonical example — mocked `/chat` route, paced steps, end-of-test assertions, final pause. Copy its shape when adding a new walkthrough.
+Follow the rules above for every walkthrough you write — not just the first one.
