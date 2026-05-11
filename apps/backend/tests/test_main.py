@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from pathlib import Path
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -174,3 +175,108 @@ def test_chat_rejects_blank_message(client: TestClient) -> None:
 def test_tests_do_not_create_runtime_database(client: TestClient) -> None:
     assert app.state.db_path == ":memory:"
     assert not Path("data/chat.db").exists()
+
+
+def test_persistent_conversation_flow_uses_embedded_sqlite(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "persistent-chat.db"
+    previous_db_path = app.state.db_path
+    app.state.db_path = str(db_path)
+    create_all(db_path)
+
+    try:
+        with TestClient(app) as first_session:
+            created = first_session.post("/conversations")
+            assert created.status_code == 201
+            first_conversation_id = created.json()["conversation"]["id"]
+
+            first_turn = first_session.post(
+                "/chat",
+                json={
+                    "conversation_id": first_conversation_id,
+                    "message": "first durable turn",
+                },
+            )
+            second_turn = first_session.post(
+                "/chat",
+                json={
+                    "conversation_id": first_conversation_id,
+                    "message": "second durable turn",
+                },
+            )
+
+            assert first_turn.status_code == 200
+            assert second_turn.status_code == 200
+            assert [
+                message["content"] for message in second_turn.json()["messages"]
+            ] == [
+                "first durable turn",
+                "first durable turn, this is symphony",
+                "second durable turn",
+                "second durable turn, this is symphony",
+            ]
+
+        assert db_path.exists()
+        with sqlite3.connect(db_path) as conn:
+            assert conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'messages'"
+            ).fetchone()
+
+        with TestClient(app) as reloaded_session:
+            reloaded = reloaded_session.get(f"/conversations/{first_conversation_id}")
+            assert reloaded.status_code == 200
+            assert [message["content"] for message in reloaded.json()["messages"]] == [
+                "first durable turn",
+                "first durable turn, this is symphony",
+                "second durable turn",
+                "second durable turn, this is symphony",
+            ]
+
+            second_chat = reloaded_session.post(
+                "/conversations", json={"title": "Second persisted chat"}
+            )
+            assert second_chat.status_code == 201
+            second_conversation_id = second_chat.json()["conversation"]["id"]
+            second_chat_turn = reloaded_session.post(
+                "/chat",
+                json={
+                    "conversation_id": second_conversation_id,
+                    "message": "separate thread",
+                },
+            )
+            assert second_chat_turn.status_code == 200
+
+            first_chat_again = reloaded_session.get(
+                f"/conversations/{first_conversation_id}"
+            )
+            second_chat_again = reloaded_session.get(
+                f"/conversations/{second_conversation_id}"
+            )
+
+            assert [
+                message["content"] for message in first_chat_again.json()["messages"]
+            ] == [
+                "first durable turn",
+                "first durable turn, this is symphony",
+                "second durable turn",
+                "second durable turn, this is symphony",
+            ]
+            assert [
+                message["content"] for message in second_chat_again.json()["messages"]
+            ] == [
+                "separate thread",
+                "separate thread, this is symphony",
+            ]
+
+            deleted = reloaded_session.delete(
+                f"/conversations/{second_conversation_id}"
+            )
+            assert deleted.status_code == 204
+            listed = reloaded_session.get("/conversations")
+            assert listed.status_code == 200
+            assert [item["id"] for item in listed.json()["conversations"]] == [
+                first_conversation_id
+            ]
+    finally:
+        app.state.db_path = previous_db_path
