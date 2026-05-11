@@ -15,6 +15,18 @@ Pass a spec path to record one test only:
 
 The script runs `pnpm e2e`, copies each produced `.webm` to the delivery dir, and prints a path list. Exits non-zero with `FAIL ...` if any test fails.
 
+## Deliver: attach the video to the Linear issue
+
+Every video is a deliverable — link it on the ticket so reviewers don't have to chase paths.
+
+    ./.codex/scripts/attach-walkthrough.sh <ISSUE-IDENTIFIER> <VIDEO-PATH>
+
+Example, using the path printed by `record-walkthrough.sh`:
+
+    ./.codex/scripts/attach-walkthrough.sh SYM-29 /home/symphony/walkthroughs/20260511-173540-multi-chat-lifecycle.webm
+
+The script uploads to Linear's file store and attaches the resulting URL to the issue's Attachments rail. Prints `OK: <issue> attached <linear-url>` on success. Run it once per produced `.webm` after `record-walkthrough.sh` exits clean and **before** flipping the ticket to `Human Review`.
+
 ## Writing a watchable narrative test
 
 Walkthrough tests are **narrative scripts**, not regression checks. Different rules from `vitest`:
