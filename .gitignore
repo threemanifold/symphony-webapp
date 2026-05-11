@@ -24,3 +24,12 @@ apps/backend/data/
 .DS_Store
 .vscode/
 .idea/
+
+# Playwright
+playwright-report/
+test-results/
+playwright/.cache/
+
+# Local-laptop fallback for record-walkthrough.sh when the Symphony bind-mount
+# path (/home/symphony/walkthroughs) isn't available.
+walkthroughs/
