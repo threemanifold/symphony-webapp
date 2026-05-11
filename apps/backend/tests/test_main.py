@@ -208,7 +208,9 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
 
             assert first_turn.status_code == 200
             assert second_turn.status_code == 200
-            assert [message["content"] for message in second_turn.json()["messages"]] == [
+            assert [
+                message["content"] for message in second_turn.json()["messages"]
+            ] == [
                 "first durable turn",
                 "first durable turn, this is symphony",
                 "second durable turn",
@@ -222,9 +224,7 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
             ).fetchone()
 
         with TestClient(app) as reloaded_session:
-            reloaded = reloaded_session.get(
-                f"/conversations/{first_conversation_id}"
-            )
+            reloaded = reloaded_session.get(f"/conversations/{first_conversation_id}")
             assert reloaded.status_code == 200
             assert [message["content"] for message in reloaded.json()["messages"]] == [
                 "first durable turn",
@@ -254,13 +254,17 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
                 f"/conversations/{second_conversation_id}"
             )
 
-            assert [message["content"] for message in first_chat_again.json()["messages"]] == [
+            assert [
+                message["content"] for message in first_chat_again.json()["messages"]
+            ] == [
                 "first durable turn",
                 "first durable turn, this is symphony",
                 "second durable turn",
                 "second durable turn, this is symphony",
             ]
-            assert [message["content"] for message in second_chat_again.json()["messages"]] == [
+            assert [
+                message["content"] for message in second_chat_again.json()["messages"]
+            ] == [
                 "separate thread",
                 "separate thread, this is symphony",
             ]

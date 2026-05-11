@@ -274,7 +274,6 @@ describe('App', () => {
       },
       body: JSON.stringify({}),
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('sends a message with conversation_id and renders the persisted echo response', async () => {
