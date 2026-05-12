@@ -243,6 +243,119 @@ describe('App', () => {
     );
   });
 
+  it('filters conversations as the user types and restores them when cleared', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        okJson({ conversations: [firstConversation, secondConversation] }),
+      )
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      );
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'second' },
+    });
+
+    expect(
+      screen.queryByRole('button', { name: 'Open First chat' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open Second chat' }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: '' },
+    });
+
+    expect(
+      screen.getByRole('button', { name: 'Open First chat' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open Second chat' }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a distinct empty state when no conversations match the search', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      );
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'missing' },
+    });
+
+    expect(
+      screen.getByText('No conversations match this search.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No conversations yet.')).not.toBeInTheDocument();
+  });
+
+  it('keeps the selected conversation open when filtering hides it', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        okJson({ conversations: [firstConversation, secondConversation] }),
+      )
+      .mockResolvedValueOnce(
+        okJson({
+          conversation: firstConversation,
+          messages: [
+            {
+              id: 'message-8',
+              conversation_id: firstConversation.id,
+              role: 'user',
+              content: 'first thread message',
+              created_at: '2026-05-10T14:01:00.000Z',
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        okJson({
+          conversation: secondConversation,
+          messages: [
+            {
+              id: 'message-9',
+              conversation_id: secondConversation.id,
+              role: 'user',
+              content: 'second thread message',
+              created_at: '2026-05-10T14:02:00.000Z',
+            },
+          ],
+        }),
+      );
+
+    render(<App />);
+
+    expect(await screen.findByText('first thread message')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'second' },
+    });
+
+    expect(
+      screen.queryByRole('button', { name: 'Open First chat' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('first thread message')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Second chat' }));
+
+    expect(await screen.findByText('second thread message')).toBeInTheDocument();
+    expect(screen.queryByText('first thread message')).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      `/conversations/${secondConversation.id}`,
+    );
+  });
+
   it('creates and selects a new empty conversation', async () => {
     const createdConversation = {
       id: 'conversation-3',
@@ -383,6 +496,19 @@ describe('App', () => {
     expect(screen.getByText('first message')).toBeInTheDocument();
     expect(screen.getByText('first response')).toBeInTheDocument();
     expect(screen.getByText('failing message')).toBeInTheDocument();
+  });
+
+  it('shows the conversation history error when the initial request fails', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: false,
+    } as Response);
+
+    render(<App />);
+
+    expect(
+      await screen.findAllByText('Unable to load conversations. Try again.'),
+    ).toHaveLength(2);
+    expect(screen.queryByText('No conversations yet.')).not.toBeInTheDocument();
   });
 
   it('validates the persistent conversation user flow end to end', async () => {

@@ -60,6 +60,8 @@ function App() {
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [isLoadingThread, setIsLoadingThread] = useState(false);
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const [conversationSearch, setConversationSearch] = useState('');
+  const [conversationLoadError, setConversationLoadError] = useState(false);
 
   const selectedConversation = useMemo(
     () =>
@@ -68,12 +70,23 @@ function App() {
       ) ?? null,
     [conversations, selectedConversationId],
   );
+  const trimmedConversationSearch = conversationSearch.trim().toLocaleLowerCase();
+  const filteredConversations = useMemo(() => {
+    if (!trimmedConversationSearch) {
+      return conversations;
+    }
+
+    return conversations.filter((conversation) =>
+      conversation.title.toLocaleLowerCase().includes(trimmedConversationSearch),
+    );
+  }, [conversations, trimmedConversationSearch]);
 
   useEffect(() => {
     let ignore = false;
 
     async function loadConversations() {
       setIsLoadingConversations(true);
+      setConversationLoadError(false);
 
       try {
         const payload = await parseJson<{
@@ -100,6 +113,7 @@ function App() {
         );
       } catch {
         if (!ignore) {
+          setConversationLoadError(true);
           setStatus('Unable to load conversations. Try again.');
         }
       } finally {
@@ -299,11 +313,25 @@ function App() {
             New chat
           </button>
         </div>
+        <div className="conversation-search">
+          <label htmlFor="conversation-search">Search conversations</label>
+          <input
+            id="conversation-search"
+            name="conversation-search"
+            type="search"
+            autoComplete="off"
+            placeholder="Search conversations"
+            value={conversationSearch}
+            onChange={(event) => setConversationSearch(event.target.value)}
+          />
+        </div>
         {isLoadingConversations ? (
           <p className="sidebar-status">Loading...</p>
-        ) : conversations.length > 0 ? (
+        ) : conversationLoadError ? (
+          <p className="sidebar-status">Unable to load conversations. Try again.</p>
+        ) : filteredConversations.length > 0 ? (
           <ol className="conversation-list">
-            {conversations.map((conversation) => (
+            {filteredConversations.map((conversation) => (
               <li key={conversation.id}>
                 <button
                   className="conversation-button"
@@ -332,6 +360,8 @@ function App() {
               </li>
             ))}
           </ol>
+        ) : conversations.length > 0 ? (
+          <p className="sidebar-status">No conversations match this search.</p>
         ) : (
           <p className="sidebar-status">No conversations yet.</p>
         )}
