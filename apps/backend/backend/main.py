@@ -13,6 +13,7 @@ ChatRole = Literal["user", "assistant"]
 DEFAULT_TITLE = "New chat"
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "chat.db"
 
+
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI) -> AsyncIterator[None]:
     create_all(fastapi_app.state.db_path)
@@ -117,7 +118,9 @@ def get_db_path() -> str:
 
 @contextmanager
 def open_db(db_path: str) -> Generator[sqlite3.Connection]:
-    conn = get_memory_connection() if db_path == ":memory:" else sqlite3.connect(db_path)
+    conn = (
+        get_memory_connection() if db_path == ":memory:" else sqlite3.connect(db_path)
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:
