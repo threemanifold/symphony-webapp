@@ -148,6 +148,112 @@ def test_chat_moves_conversation_to_top_of_list(client: TestClient) -> None:
     assert [item["id"] for item in listed.json()["conversations"]] == [first, second]
 
 
+def test_list_conversations_search_matches_title(client: TestClient) -> None:
+    first = client.post("/conversations", json={"title": "Project notes"}).json()[
+        "conversation"
+    ]
+    client.post("/conversations", json={"title": "Grocery list"})
+
+    listed = client.get("/conversations?q=Project")
+
+    assert listed.status_code == 200
+    assert listed.json()["conversations"] == [first]
+
+
+def test_list_conversations_search_matches_message_content(client: TestClient) -> None:
+    matching = client.post("/conversations", json={"title": "Planning"}).json()[
+        "conversation"
+    ]
+    other = client.post("/conversations", json={"title": "Archived"}).json()[
+        "conversation"
+    ]
+    client.post(
+        "/chat",
+        json={"conversation_id": matching["id"], "message": "discuss launch timing"},
+    )
+    client.post(
+        "/chat",
+        json={"conversation_id": other["id"], "message": "unrelated notes"},
+    )
+
+    listed = client.get("/conversations?q=launch")
+
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["conversations"]] == [matching["id"]]
+
+
+def test_list_conversations_search_is_case_insensitive(client: TestClient) -> None:
+    created = client.post("/conversations", json={"title": "Release Notes"}).json()[
+        "conversation"
+    ]
+
+    listed = client.get("/conversations?q=release")
+
+    assert listed.status_code == 200
+    assert listed.json()["conversations"] == [created]
+
+
+def test_list_conversations_search_no_match_returns_empty_list(
+    client: TestClient,
+) -> None:
+    client.post("/conversations", json={"title": "Project notes"})
+
+    listed = client.get("/conversations?q=missing")
+
+    assert listed.status_code == 200
+    assert listed.json() == {"conversations": []}
+
+
+def test_list_conversations_search_returns_unique_updated_order(
+    client: TestClient,
+) -> None:
+    first = client.post("/conversations", json={"title": "First"}).json()[
+        "conversation"
+    ]
+    second = client.post("/conversations", json={"title": "Second"}).json()[
+        "conversation"
+    ]
+    client.post(
+        "/chat",
+        json={"conversation_id": second["id"], "message": "shared marker"},
+    )
+    client.post(
+        "/chat",
+        json={"conversation_id": first["id"], "message": "shared marker one"},
+    )
+    client.post(
+        "/chat",
+        json={"conversation_id": first["id"], "message": "shared marker two"},
+    )
+
+    listed = client.get("/conversations?q=shared")
+
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["conversations"]] == [
+        first["id"],
+        second["id"],
+    ]
+
+
+def test_list_conversations_blank_search_preserves_unfiltered_behavior(
+    client: TestClient,
+) -> None:
+    first = client.post("/conversations", json={"title": "First"}).json()[
+        "conversation"
+    ]
+    second = client.post("/conversations", json={"title": "Second"}).json()[
+        "conversation"
+    ]
+
+    unfiltered = client.get("/conversations")
+    blank = client.get("/conversations?q=%20%20%20")
+
+    assert unfiltered.status_code == 200
+    assert blank.status_code == 200
+    assert unfiltered.json()["conversations"] == [second, first]
+    assert blank.json() == unfiltered.json()
+
+
 def test_missing_conversation_returns_404(client: TestClient) -> None:
     get_resp = client.get("/conversations/missing")
     delete_resp = client.delete("/conversations/missing")

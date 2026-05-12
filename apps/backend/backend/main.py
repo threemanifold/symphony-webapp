@@ -193,15 +193,35 @@ def health() -> dict[str, str]:
 
 
 @app.get("/conversations", response_model=ConversationListResponse)
-def list_conversations(db_path: str = Depends(get_db_path)) -> ConversationListResponse:
+def list_conversations(
+    q: str | None = None, db_path: str = Depends(get_db_path)
+) -> ConversationListResponse:
+    query = q.strip().lower() if q else ""
     with open_db(db_path) as conn:
-        rows = conn.execute(
-            """
-            SELECT id, title, created_at, updated_at
-            FROM conversations
-            ORDER BY updated_at DESC
-            """
-        ).fetchall()
+        if query:
+            rows = conn.execute(
+                """
+                SELECT id, title, created_at, updated_at
+                FROM conversations
+                WHERE instr(lower(title), ?) > 0
+                    OR EXISTS (
+                        SELECT 1
+                        FROM messages
+                        WHERE messages.conversation_id = conversations.id
+                            AND instr(lower(content), ?) > 0
+                    )
+                ORDER BY updated_at DESC
+                """,
+                (query, query),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, title, created_at, updated_at
+                FROM conversations
+                ORDER BY updated_at DESC
+                """
+            ).fetchall()
     return ConversationListResponse(
         conversations=[row_to_conversation(row) for row in rows]
     )
