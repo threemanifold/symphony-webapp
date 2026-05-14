@@ -56,6 +56,10 @@ input:disabled {
   gap: 14px;
 }
 
+.conversation-search {
+  display: grid;
+}
+
 h1,
 h2,
 p {
