@@ -349,7 +349,7 @@ async def chat(
             yield f"data: [ERROR] {error_msg}\n\n"
             return
         except anthropic.APIConnectionError:
-            yield f"data: [ERROR] Connection to AI service failed\n\n"
+            yield "data: [ERROR] Connection to AI service failed\n\n"
             return
         except Exception as exc:
             yield f"data: [ERROR] {exc}\n\n"
