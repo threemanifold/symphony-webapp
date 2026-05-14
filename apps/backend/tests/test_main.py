@@ -345,7 +345,9 @@ def test_search_no_match_returns_empty(client: TestClient) -> None:
     assert listed.json()["conversations"] == []
 
 
-def test_search_duplicate_messages_returns_conversation_once(client: TestClient) -> None:
+def test_search_duplicate_messages_returns_conversation_once(
+    client: TestClient,
+) -> None:
     conv_id = _create_conv(client, "Dedup test")
     _send_message(client, conv_id, "hello world")
     _send_message(client, conv_id, "hello again")
