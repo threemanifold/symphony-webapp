@@ -9,6 +9,7 @@ type ChatMessage = {
   role: ChatRole;
   content: string;
   created_at?: string;
+  isError?: boolean;
 };
 
 type ConversationSummary = {
@@ -306,7 +307,14 @@ function App() {
             }>(await fetch('/conversations'));
             setConversations(payload.conversations);
           } else if (data.startsWith('[ERROR]')) {
-            setStatus(data.slice(7).trim() || 'An error occurred.');
+            const errorText = data.slice(7).trim() || 'An error occurred.';
+            setMessages((currentMessages) =>
+              currentMessages.map((msg) =>
+                msg.id === streamingId
+                  ? { ...msg, content: errorText, isError: true }
+                  : msg,
+              ),
+            );
           } else {
             const token = JSON.parse(data) as string;
             setMessages((currentMessages) =>
@@ -320,7 +328,13 @@ function App() {
         }
       }
     } catch {
-      setStatus('Unable to send message. Try again.');
+      setMessages((currentMessages) =>
+        currentMessages.map((msg) =>
+          msg.id === streamingId
+            ? { ...msg, content: 'Unable to send message. Try again.', isError: true }
+            : msg,
+        ),
+      );
     } finally {
       setIsSending(false);
     }
@@ -409,7 +423,7 @@ function App() {
             <div className="chat-history">
               {messages.map((chatMessage, index) => (
                 <p
-                  className={`message message-${chatMessage.role}`}
+                  className={`message message-${chatMessage.role}${chatMessage.isError ? ' message-error' : ''}`}
                   key={chatMessage.id ?? `${chatMessage.role}-${index}`}
                 >
                   <strong>

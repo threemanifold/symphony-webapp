@@ -1,9 +1,12 @@
-from collections.abc import Generator
+from collections.abc import AsyncIterator, Generator
+from contextlib import asynccontextmanager
 import json
 from pathlib import Path
 import sqlite3
 from typing import Any
+from unittest.mock import MagicMock, patch
 
+import anthropic
 import pytest
 from fastapi.testclient import TestClient
 
@@ -316,6 +319,82 @@ def test_chat_rejects_blank_message(client: TestClient) -> None:
 
     assert resp.status_code == 400
     assert resp.json() == {"detail": "Message must not be blank."}
+
+
+def _make_error_stream(exc: Exception) -> MagicMock:
+    """Return a mock _async_anthropic_client that raises exc when streaming."""
+
+    @asynccontextmanager
+    async def fake_stream(*args: object, **kwargs: object) -> AsyncIterator[MagicMock]:
+        async def _raise() -> AsyncIterator[str]:
+            raise exc
+            yield  # make it an async generator
+
+        mock_stream = MagicMock()
+        mock_stream.text_stream = _raise()
+        yield mock_stream
+
+    mock_messages = MagicMock()
+    mock_messages.stream = fake_stream
+    mock_client = MagicMock()
+    mock_client.messages = mock_messages
+    return mock_client
+
+
+def _sse_error_text(client: TestClient, conversation_id: str, message: str) -> str:
+    """Send a chat and return the [ERROR] message text from the SSE stream."""
+    resp = client.post(
+        "/chat",
+        json={"conversation_id": conversation_id, "message": message},
+    )
+    assert resp.status_code == 200
+    for line in resp.text.splitlines():
+        if line.startswith("data: [ERROR]"):
+            return line[len("data: [ERROR]") :].strip()
+    return ""
+
+
+def test_chat_emits_error_event_on_rate_limit(client: TestClient) -> None:
+    conversation_id = client.post("/conversations").json()["conversation"]["id"]
+    exc = anthropic.APIStatusError(
+        "rate limited",
+        response=MagicMock(status_code=429),
+        body={},
+    )
+    with patch("backend.main._async_anthropic_client", _make_error_stream(exc)):
+        error_text = _sse_error_text(client, conversation_id, "hello")
+    assert "rate limit" in error_text.lower()
+
+
+def test_chat_emits_error_event_on_server_error(client: TestClient) -> None:
+    conversation_id = client.post("/conversations").json()["conversation"]["id"]
+    exc = anthropic.APIStatusError(
+        "server error",
+        response=MagicMock(status_code=500),
+        body={},
+    )
+    with patch("backend.main._async_anthropic_client", _make_error_stream(exc)):
+        error_text = _sse_error_text(client, conversation_id, "hello")
+    assert "unavailable" in error_text.lower()
+
+
+def test_chat_emits_error_event_on_connection_error(client: TestClient) -> None:
+    conversation_id = client.post("/conversations").json()["conversation"]["id"]
+    exc = anthropic.APIConnectionError(request=MagicMock())
+    with patch("backend.main._async_anthropic_client", _make_error_stream(exc)):
+        error_text = _sse_error_text(client, conversation_id, "hello")
+    assert "connection" in error_text.lower()
+
+
+def test_chat_returns_500_when_api_key_missing(client: TestClient) -> None:
+    conversation_id = client.post("/conversations").json()["conversation"]["id"]
+    with patch("backend.main._async_anthropic_client", None):
+        resp = client.post(
+            "/chat",
+            json={"conversation_id": conversation_id, "message": "hello"},
+        )
+    assert resp.status_code == 500
+    assert "ANTHROPIC_API_KEY" in resp.json()["detail"]
 
 
 def test_tests_do_not_create_runtime_database(client: TestClient) -> None:
