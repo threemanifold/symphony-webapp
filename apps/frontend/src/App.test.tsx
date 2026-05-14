@@ -23,6 +23,20 @@ function okJson(payload: unknown): Response {
   } as Response;
 }
 
+function sseResponse(tokens: string[]): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const token of tokens) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`));
+      }
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.close();
+    },
+  });
+  return { ok: true, body: stream } as unknown as Response;
+}
+
 type StoredMessage = {
   id: string;
   conversation_id: string;
@@ -123,11 +137,12 @@ function createPersistentChatApi() {
         content: body.message,
         created_at: timestamp,
       };
+      const replyContent = `${body.message}, this is symphony`;
       const reply = {
         id: `message-${nextMessage++}`,
         conversation_id: conversation.id,
         role: 'assistant' as const,
-        content: `${body.message}, this is symphony`,
+        content: replyContent,
         created_at: now(),
       };
       const conversationMessages = messages.get(conversation.id) ?? [];
@@ -138,11 +153,7 @@ function createPersistentChatApi() {
       conversation.updated_at = reply.created_at;
       moveConversationToTop(conversation);
 
-      return okJson({
-        conversation,
-        messages: conversationMessages,
-        reply,
-      });
+      return sseResponse([replyContent]);
     }
 
     return { ok: false } as Response;
@@ -401,33 +412,9 @@ describe('App', () => {
       .mockResolvedValueOnce(
         okJson({ conversation: firstConversation, messages: [] }),
       )
+      .mockResolvedValueOnce(sseResponse(['hello, this is symphony']))
       .mockResolvedValueOnce(
-        okJson({
-          conversation: updatedConversation,
-          messages: [
-            {
-              id: 'message-4',
-              conversation_id: firstConversation.id,
-              role: 'user',
-              content: 'hello',
-              created_at: '2026-05-10T16:00:00.000Z',
-            },
-            {
-              id: 'message-5',
-              conversation_id: firstConversation.id,
-              role: 'assistant',
-              content: 'hello, this is symphony',
-              created_at: '2026-05-10T16:00:01.000Z',
-            },
-          ],
-          reply: {
-            id: 'message-5',
-            conversation_id: firstConversation.id,
-            role: 'assistant',
-            content: 'hello, this is symphony',
-            created_at: '2026-05-10T16:00:01.000Z',
-          },
-        }),
+        okJson({ conversations: [updatedConversation] }),
       );
 
     render(<App />);
