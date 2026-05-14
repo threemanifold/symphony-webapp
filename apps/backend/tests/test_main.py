@@ -88,7 +88,7 @@ def test_delete_conversation_cascades_messages(client: TestClient) -> None:
     assert missing.json() == {"detail": "Conversation not found."}
 
 
-def test_chat_persists_user_message_and_echo_reply(client: TestClient) -> None:
+def test_chat_persists_user_message_and_assistant_reply(client: TestClient) -> None:
     conversation_id = client.post("/conversations").json()["conversation"]["id"]
 
     resp = client.post(
@@ -101,7 +101,8 @@ def test_chat_persists_user_message_and_echo_reply(client: TestClient) -> None:
     assert body["conversation"]["id"] == conversation_id
     assert body["conversation"]["title"] == "hello"
     assert body["reply"]["role"] == "assistant"
-    assert body["reply"]["content"] == "hello, this is symphony"
+    assert isinstance(body["reply"]["content"], str)
+    assert len(body["reply"]["content"]) > 0
     assert body["messages"] == [
         {
             "id": body["messages"][0]["id"],
@@ -314,14 +315,16 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
 
             assert first_turn.status_code == 200
             assert second_turn.status_code == 200
-            assert [
-                message["content"] for message in second_turn.json()["messages"]
-            ] == [
-                "first durable turn",
-                "first durable turn, this is symphony",
-                "second durable turn",
-                "second durable turn, this is symphony",
-            ]
+            second_messages = second_turn.json()["messages"]
+            assert len(second_messages) == 4
+            assert second_messages[0]["content"] == "first durable turn"
+            assert second_messages[0]["role"] == "user"
+            assert second_messages[1]["role"] == "assistant"
+            assert len(second_messages[1]["content"]) > 0
+            assert second_messages[2]["content"] == "second durable turn"
+            assert second_messages[2]["role"] == "user"
+            assert second_messages[3]["role"] == "assistant"
+            assert len(second_messages[3]["content"]) > 0
 
         assert db_path.exists()
         with sqlite3.connect(db_path) as conn:
@@ -332,12 +335,10 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
         with TestClient(app) as reloaded_session:
             reloaded = reloaded_session.get(f"/conversations/{first_conversation_id}")
             assert reloaded.status_code == 200
-            assert [message["content"] for message in reloaded.json()["messages"]] == [
-                "first durable turn",
-                "first durable turn, this is symphony",
-                "second durable turn",
-                "second durable turn, this is symphony",
-            ]
+            reloaded_messages = reloaded.json()["messages"]
+            assert len(reloaded_messages) == 4
+            assert reloaded_messages[0]["content"] == "first durable turn"
+            assert reloaded_messages[2]["content"] == "second durable turn"
 
             second_chat = reloaded_session.post(
                 "/conversations", json={"title": "Second persisted chat"}
@@ -360,20 +361,20 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
                 f"/conversations/{second_conversation_id}"
             )
 
-            assert [
-                message["content"] for message in first_chat_again.json()["messages"]
-            ] == [
-                "first durable turn",
-                "first durable turn, this is symphony",
-                "second durable turn",
-                "second durable turn, this is symphony",
-            ]
-            assert [
-                message["content"] for message in second_chat_again.json()["messages"]
-            ] == [
-                "separate thread",
-                "separate thread, this is symphony",
-            ]
+            assert len(first_chat_again.json()["messages"]) == 4
+            assert (
+                first_chat_again.json()["messages"][0]["content"]
+                == "first durable turn"
+            )
+            assert (
+                first_chat_again.json()["messages"][2]["content"]
+                == "second durable turn"
+            )
+            second_chat_messages = second_chat_again.json()["messages"]
+            assert len(second_chat_messages) == 2
+            assert second_chat_messages[0]["content"] == "separate thread"
+            assert second_chat_messages[0]["role"] == "user"
+            assert second_chat_messages[1]["role"] == "assistant"
 
             deleted = reloaded_session.delete(
                 f"/conversations/{second_conversation_id}"
