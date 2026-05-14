@@ -350,7 +350,7 @@ def _sse_error_text(client: TestClient, conversation_id: str, message: str) -> s
     assert resp.status_code == 200
     for line in resp.text.splitlines():
         if line.startswith("data: [ERROR]"):
-            return line[len("data: [ERROR]"):].strip()
+            return line[len("data: [ERROR]") :].strip()
     return ""
 
 
