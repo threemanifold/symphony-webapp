@@ -331,7 +331,7 @@ async def chat(
     async def stream_tokens() -> AsyncIterator[str]:
         chunks: list[str] = []
         try:
-            async with _async_anthropic_client.messages.stream(  # type: ignore[union-attr]
+            async with _async_anthropic_client.messages.stream(
                 model="claude-sonnet-4-6",
                 max_tokens=8096,
                 messages=api_messages,
