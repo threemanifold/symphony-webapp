@@ -1,13 +1,29 @@
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime
+import logging
+import os
 from pathlib import Path
 import sqlite3
 from typing import Literal
 from uuid import uuid4
 
+import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+_ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+if not _ANTHROPIC_API_KEY:
+    logger.error(
+        "ANTHROPIC_API_KEY environment variable is not set. "
+        "The /chat endpoint will return HTTP 500 until it is provided."
+    )
+
+_anthropic_client: anthropic.Anthropic | None = (
+    anthropic.Anthropic(api_key=_ANTHROPIC_API_KEY) if _ANTHROPIC_API_KEY else None
+)
 
 ChatRole = Literal["user", "assistant"]
 DEFAULT_TITLE = "New chat"
@@ -288,8 +304,15 @@ def chat(request: ChatRequest, db_path: str = Depends(get_db_path)) -> ChatRespo
     if not content:
         raise HTTPException(status_code=400, detail="Message must not be blank.")
 
+    if _anthropic_client is None:
+        raise HTTPException(
+            status_code=500,
+            detail="ANTHROPIC_API_KEY is not configured. Unable to process chat messages.",
+        )
+
     with open_db(db_path) as conn:
         conversation = get_conversation_or_404(conn, request.conversation_id)
+        prior_messages = list_messages(conn, conversation.id)
         now = utc_now()
         user_message = Message(
             id=str(uuid4()),
@@ -298,7 +321,16 @@ def chat(request: ChatRequest, db_path: str = Depends(get_db_path)) -> ChatRespo
             content=content,
             created_at=now,
         )
-        assistant_content = f"{content}, this is symphony"
+        api_messages: list[anthropic.types.MessageParam] = [
+            {"role": msg.role, "content": msg.content} for msg in prior_messages
+        ]
+        api_messages.append({"role": "user", "content": content})
+        response = _anthropic_client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=8096,
+            messages=api_messages,
+        )
+        assistant_content = response.content[0].text  # type: ignore[union-attr]
         assistant_message = Message(
             id=str(uuid4()),
             conversation_id=conversation.id,
