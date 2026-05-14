@@ -197,6 +197,13 @@ h2 {
   justify-self: start;
 }
 
+.message-error {
+  color: #b91c1c;
+  font-style: italic;
+  border-color: #fca5a5;
+  background: #fff5f5;
+}
+
 .chat-form {
   display: grid;
   gap: 12px;

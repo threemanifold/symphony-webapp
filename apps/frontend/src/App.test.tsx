@@ -23,6 +23,19 @@ function okJson(payload: unknown): Response {
   } as Response;
 }
 
+function sseErrorResponse(errorMessage: string): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(`data: [ERROR] ${errorMessage}\n\n`),
+      );
+      controller.close();
+    },
+  });
+  return { ok: true, body: stream } as unknown as Response;
+}
+
 function sseResponse(tokens: string[]): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -483,6 +496,57 @@ describe('App', () => {
     expect(screen.getByText('first message')).toBeInTheDocument();
     expect(screen.getByText('first response')).toBeInTheDocument();
     expect(screen.getByText('failing message')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
+  });
+
+  it('shows inline error bubble when SSE stream emits an [ERROR] event', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      )
+      .mockResolvedValueOnce(sseErrorResponse('Rate limit exceeded — please retry shortly'));
+
+    render(<App />);
+
+    await screen.findByText('No messages yet.');
+    fireEvent.change(screen.getByLabelText('Message'), {
+      target: { value: 'hello' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Rate limit exceeded — please retry shortly'),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByText('hello')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
+  });
+
+  it('shows inline error when non-2xx response is received before streaming', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      )
+      .mockResolvedValueOnce({ ok: false, status: 500 } as Response);
+
+    render(<App />);
+
+    await screen.findByText('No messages yet.');
+    fireEvent.change(screen.getByLabelText('Message'), {
+      target: { value: 'trigger error' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Unable to send message. Try again.'),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByText('trigger error')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
   });
 
   it('shows the conversation history error when the initial request fails', async () => {

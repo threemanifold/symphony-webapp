@@ -339,6 +339,18 @@ async def chat(
                 async for text in stream.text_stream:
                     chunks.append(text)
                     yield f"data: {json.dumps(text)}\n\n"
+        except anthropic.APIStatusError as exc:
+            if exc.status_code == 429:
+                error_msg = "Rate limit exceeded — please retry shortly"
+            elif exc.status_code >= 500:
+                error_msg = "AI service unavailable"
+            else:
+                error_msg = f"AI request failed ({exc.status_code})"
+            yield f"data: [ERROR] {error_msg}\n\n"
+            return
+        except anthropic.APIConnectionError:
+            yield f"data: [ERROR] Connection to AI service failed\n\n"
+            return
         except Exception as exc:
             yield f"data: [ERROR] {exc}\n\n"
             return
