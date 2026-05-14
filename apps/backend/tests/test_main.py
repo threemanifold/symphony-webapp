@@ -362,8 +362,14 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
             )
 
             assert len(first_chat_again.json()["messages"]) == 4
-            assert first_chat_again.json()["messages"][0]["content"] == "first durable turn"
-            assert first_chat_again.json()["messages"][2]["content"] == "second durable turn"
+            assert (
+                first_chat_again.json()["messages"][0]["content"]
+                == "first durable turn"
+            )
+            assert (
+                first_chat_again.json()["messages"][2]["content"]
+                == "second durable turn"
+            )
             second_chat_messages = second_chat_again.json()["messages"]
             assert len(second_chat_messages) == 2
             assert second_chat_messages[0]["content"] == "separate thread"
