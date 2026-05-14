@@ -258,40 +258,67 @@ function App() {
       return;
     }
 
-    const pendingUserMessage: ChatMessage = {
-      role: 'user',
-      content: trimmedMessage,
-    };
+    const conversationId = selectedConversationId;
+    const streamingId = `streaming-${Date.now()}`;
 
-    setMessages((currentMessages) => [...currentMessages, pendingUserMessage]);
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      { role: 'user', content: trimmedMessage },
+      { id: streamingId, role: 'assistant', content: '' },
+    ]);
     setMessage('');
     setIsSending(true);
-    setStatus('Sending...');
+    setStatus('');
 
     try {
-      const payload = await parseJson<
-        ConversationDetail & { reply: ChatMessage }
-      >(
-        await fetch('/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            conversation_id: selectedConversationId,
-            message: trimmedMessage,
-          }),
+      const response = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          message: trimmedMessage,
         }),
-      );
+      });
 
-      setMessages(payload.messages);
-      setConversations((currentConversations) => [
-        payload.conversation,
-        ...currentConversations.filter(
-          (conversation) => conversation.id !== payload.conversation.id,
-        ),
-      ]);
-      setStatus('');
+      if (!response.ok || !response.body) {
+        throw new Error(`Request failed with ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6);
+
+          if (data === '[DONE]') {
+            const payload = await parseJson<{
+              conversations: ConversationSummary[];
+            }>(await fetch('/conversations'));
+            setConversations(payload.conversations);
+          } else if (data.startsWith('[ERROR]')) {
+            setStatus(data.slice(7).trim() || 'An error occurred.');
+          } else {
+            const token = JSON.parse(data) as string;
+            setMessages((currentMessages) =>
+              currentMessages.map((msg) =>
+                msg.id === streamingId
+                  ? { ...msg, content: msg.content + token }
+                  : msg,
+              ),
+            );
+          }
+        }
+      }
     } catch {
       setStatus('Unable to send message. Try again.');
     } finally {

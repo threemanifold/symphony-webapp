@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime
+import json
 import logging
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ from uuid import uuid4
 
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,9 @@ if not _ANTHROPIC_API_KEY:
 
 _anthropic_client: anthropic.Anthropic | None = (
     anthropic.Anthropic(api_key=_ANTHROPIC_API_KEY) if _ANTHROPIC_API_KEY else None
+)
+_async_anthropic_client: anthropic.AsyncAnthropic | None = (
+    anthropic.AsyncAnthropic(api_key=_ANTHROPIC_API_KEY) if _ANTHROPIC_API_KEY else None
 )
 
 ChatRole = Literal["user", "assistant"]
@@ -298,13 +303,15 @@ def delete_conversation(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest, db_path: str = Depends(get_db_path)) -> ChatResponse:
+@app.post("/chat")
+async def chat(
+    request: ChatRequest, db_path: str = Depends(get_db_path)
+) -> StreamingResponse:
     content = request.message.strip()
     if not content:
         raise HTTPException(status_code=400, detail="Message must not be blank.")
 
-    if _anthropic_client is None:
+    if _async_anthropic_client is None:
         raise HTTPException(
             status_code=500,
             detail="ANTHROPIC_API_KEY is not configured. Unable to process chat messages.",
@@ -313,71 +320,59 @@ def chat(request: ChatRequest, db_path: str = Depends(get_db_path)) -> ChatRespo
     with open_db(db_path) as conn:
         conversation = get_conversation_or_404(conn, request.conversation_id)
         prior_messages = list_messages(conn, conversation.id)
-        now = utc_now()
-        user_message = Message(
-            id=str(uuid4()),
-            conversation_id=conversation.id,
-            role="user",
-            content=content,
-            created_at=now,
-        )
-        api_messages: list[anthropic.types.MessageParam] = [
-            {"role": msg.role, "content": msg.content} for msg in prior_messages
-        ]
-        api_messages.append({"role": "user", "content": content})
-        response = _anthropic_client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=8096,
-            messages=api_messages,
-        )
-        assistant_content = response.content[0].text  # type: ignore[union-attr]
-        assistant_message = Message(
-            id=str(uuid4()),
-            conversation_id=conversation.id,
-            role="assistant",
-            content=assistant_content,
-            created_at=utc_now(),
-        )
-        conn.executemany(
-            """
-            INSERT INTO messages (id, conversation_id, role, content, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    user_message.id,
-                    user_message.conversation_id,
-                    user_message.role,
-                    user_message.content,
-                    user_message.created_at,
-                ),
-                (
-                    assistant_message.id,
-                    assistant_message.conversation_id,
-                    assistant_message.role,
-                    assistant_message.content,
-                    assistant_message.created_at,
-                ),
-            ],
-        )
+
+    now = utc_now()
+    user_msg_id = str(uuid4())
+    api_messages: list[anthropic.types.MessageParam] = [
+        {"role": msg.role, "content": msg.content} for msg in prior_messages
+    ]
+    api_messages.append({"role": "user", "content": content})
+
+    async def stream_tokens() -> AsyncIterator[str]:
+        chunks: list[str] = []
+        try:
+            async with _async_anthropic_client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=8096,
+                messages=api_messages,
+            ) as stream:
+                async for text in stream.text_stream:
+                    chunks.append(text)
+                    yield f"data: {json.dumps(text)}\n\n"
+        except Exception as exc:
+            yield f"data: [ERROR] {exc}\n\n"
+            return
+
+        assistant_content = "".join(chunks)
+        assistant_msg_id = str(uuid4())
+        assistant_created_at = utc_now()
         title = (
             title_from_message(content)
             if conversation.title == DEFAULT_TITLE
             else conversation.title
         )
-        conn.execute(
-            """
-            UPDATE conversations
-            SET title = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (title, assistant_message.created_at, conversation.id),
-        )
-        updated_conversation = get_conversation_or_404(conn, conversation.id)
-        messages = list_messages(conn, conversation.id)
+        with open_db(db_path) as conn:
+            conn.executemany(
+                """
+                INSERT INTO messages (id, conversation_id, role, content, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (user_msg_id, conversation.id, "user", content, now),
+                    (
+                        assistant_msg_id,
+                        conversation.id,
+                        "assistant",
+                        assistant_content,
+                        assistant_created_at,
+                    ),
+                ],
+            )
+            conn.execute(
+                "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
+                (title, assistant_created_at, conversation.id),
+            )
 
-    return ChatResponse(
-        conversation=updated_conversation,
-        messages=messages,
-        reply=assistant_message,
-    )
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream_tokens(), media_type="text/event-stream")

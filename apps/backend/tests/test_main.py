@@ -1,11 +1,59 @@
 from collections.abc import Generator
+import json
 from pathlib import Path
 import sqlite3
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app, create_all
+
+
+def consume_sse_chat(
+    client: TestClient, conversation_id: str, message: str
+) -> tuple[int, dict[str, Any]]:
+    """POST /chat, consume the SSE stream, and return (status_code, body_dict).
+
+    body_dict mirrors the old JSON shape: {conversation, messages, reply}.
+    On non-200 or error events the dict may be partial; callers should check
+    status_code first.
+    """
+    resp = client.post(
+        "/chat",
+        json={"conversation_id": conversation_id, "message": message},
+        headers={"Accept": "text/event-stream"},
+    )
+    if resp.status_code != 200:
+        # Error raised before streaming (404, 400, 500) — return as-is.
+        try:
+            return resp.status_code, resp.json()
+        except Exception:
+            return resp.status_code, {}
+
+    tokens: list[str] = []
+    for line in resp.text.splitlines():
+        if not line.startswith("data: "):
+            continue
+        data = line[6:]
+        if data == "[DONE]":
+            break
+        if data.startswith("[ERROR]"):
+            return 500, {"detail": data[7:].strip()}
+        tokens.append(json.loads(data))
+
+    assistant_content = "".join(tokens)
+
+    conv_resp = client.get(f"/conversations/{conversation_id}")
+    assert conv_resp.status_code == 200
+    conv_body = conv_resp.json()
+    messages = conv_body["messages"]
+    reply = next((m for m in reversed(messages) if m["role"] == "assistant"), None)
+    return 200, {
+        "conversation": conv_body["conversation"],
+        "messages": messages,
+        "reply": reply or {"role": "assistant", "content": assistant_content},
+    }
 
 
 @pytest.fixture()
@@ -73,11 +121,9 @@ def test_create_conversation_defaults_blank_title(client: TestClient) -> None:
 
 def test_delete_conversation_cascades_messages(client: TestClient) -> None:
     conversation_id = client.post("/conversations").json()["conversation"]["id"]
-    chat = client.post(
-        "/chat", json={"conversation_id": conversation_id, "message": "hello"}
-    )
-    assert chat.status_code == 200
-    assert len(chat.json()["messages"]) == 2
+    status_code, body = consume_sse_chat(client, conversation_id, "hello")
+    assert status_code == 200
+    assert len(body["messages"]) == 2
 
     deleted = client.delete(f"/conversations/{conversation_id}")
     assert deleted.status_code == 204
@@ -91,13 +137,9 @@ def test_delete_conversation_cascades_messages(client: TestClient) -> None:
 def test_chat_persists_user_message_and_assistant_reply(client: TestClient) -> None:
     conversation_id = client.post("/conversations").json()["conversation"]["id"]
 
-    resp = client.post(
-        "/chat",
-        json={"conversation_id": conversation_id, "message": "hello"},
-    )
+    status_code, body = consume_sse_chat(client, conversation_id, "hello")
 
-    assert resp.status_code == 200
-    body = resp.json()
+    assert status_code == 200
     assert body["conversation"]["id"] == conversation_id
     assert body["conversation"]["title"] == "hello"
     assert body["reply"]["role"] == "assistant"
@@ -124,13 +166,10 @@ def test_chat_preserves_custom_title(client: TestClient) -> None:
         "/conversations", json={"title": "Pinned title"}
     ).json()["conversation"]["id"]
 
-    resp = client.post(
-        "/chat",
-        json={"conversation_id": conversation_id, "message": "hello"},
-    )
+    status_code, body = consume_sse_chat(client, conversation_id, "hello")
 
-    assert resp.status_code == 200
-    assert resp.json()["conversation"]["title"] == "Pinned title"
+    assert status_code == 200
+    assert body["conversation"]["title"] == "Pinned title"
 
 
 def test_chat_moves_conversation_to_top_of_list(client: TestClient) -> None:
@@ -298,24 +337,16 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
             assert created.status_code == 201
             first_conversation_id = created.json()["conversation"]["id"]
 
-            first_turn = first_session.post(
-                "/chat",
-                json={
-                    "conversation_id": first_conversation_id,
-                    "message": "first durable turn",
-                },
+            first_status, _ = consume_sse_chat(
+                first_session, first_conversation_id, "first durable turn"
             )
-            second_turn = first_session.post(
-                "/chat",
-                json={
-                    "conversation_id": first_conversation_id,
-                    "message": "second durable turn",
-                },
+            second_status, second_body = consume_sse_chat(
+                first_session, first_conversation_id, "second durable turn"
             )
 
-            assert first_turn.status_code == 200
-            assert second_turn.status_code == 200
-            second_messages = second_turn.json()["messages"]
+            assert first_status == 200
+            assert second_status == 200
+            second_messages = second_body["messages"]
             assert len(second_messages) == 4
             assert second_messages[0]["content"] == "first durable turn"
             assert second_messages[0]["role"] == "user"
@@ -345,14 +376,10 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
             )
             assert second_chat.status_code == 201
             second_conversation_id = second_chat.json()["conversation"]["id"]
-            second_chat_turn = reloaded_session.post(
-                "/chat",
-                json={
-                    "conversation_id": second_conversation_id,
-                    "message": "separate thread",
-                },
+            second_chat_turn_status, _ = consume_sse_chat(
+                reloaded_session, second_conversation_id, "separate thread"
             )
-            assert second_chat_turn.status_code == 200
+            assert second_chat_turn_status == 200
 
             first_chat_again = reloaded_session.get(
                 f"/conversations/{first_conversation_id}"
