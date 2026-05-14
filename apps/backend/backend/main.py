@@ -13,6 +13,7 @@ ChatRole = Literal["user", "assistant"]
 DEFAULT_TITLE = "New chat"
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "chat.db"
 
+
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI) -> AsyncIterator[None]:
     create_all(fastapi_app.state.db_path)
@@ -117,7 +118,9 @@ def get_db_path() -> str:
 
 @contextmanager
 def open_db(db_path: str) -> Generator[sqlite3.Connection]:
-    conn = get_memory_connection() if db_path == ":memory:" else sqlite3.connect(db_path)
+    conn = (
+        get_memory_connection() if db_path == ":memory:" else sqlite3.connect(db_path)
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:
@@ -193,15 +196,35 @@ def health() -> dict[str, str]:
 
 
 @app.get("/conversations", response_model=ConversationListResponse)
-def list_conversations(db_path: str = Depends(get_db_path)) -> ConversationListResponse:
+def list_conversations(
+    q: str | None = None, db_path: str = Depends(get_db_path)
+) -> ConversationListResponse:
+    query = q.strip().lower() if q else ""
     with open_db(db_path) as conn:
-        rows = conn.execute(
-            """
-            SELECT id, title, created_at, updated_at
-            FROM conversations
-            ORDER BY updated_at DESC
-            """
-        ).fetchall()
+        if query:
+            rows = conn.execute(
+                """
+                SELECT id, title, created_at, updated_at
+                FROM conversations
+                WHERE instr(lower(title), ?) > 0
+                    OR EXISTS (
+                        SELECT 1
+                        FROM messages
+                        WHERE messages.conversation_id = conversations.id
+                            AND instr(lower(content), ?) > 0
+                    )
+                ORDER BY updated_at DESC
+                """,
+                (query, query),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, title, created_at, updated_at
+                FROM conversations
+                ORDER BY updated_at DESC
+                """
+            ).fetchall()
     return ConversationListResponse(
         conversations=[row_to_conversation(row) for row in rows]
     )
