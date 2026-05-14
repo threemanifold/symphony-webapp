@@ -280,3 +280,86 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
             ]
     finally:
         app.state.db_path = previous_db_path
+
+
+# --- Conversation search tests ---
+
+
+def _create_conv(client: TestClient, title: str) -> str:
+    resp = client.post("/conversations", json={"title": title})
+    assert resp.status_code == 201
+    return resp.json()["conversation"]["id"]
+
+
+def _send_message(client: TestClient, conv_id: str, content: str) -> None:
+    resp = client.post("/chat", json={"conversation_id": conv_id, "message": content})
+    assert resp.status_code == 200
+
+
+def test_search_no_query_returns_all(client: TestClient) -> None:
+    _create_conv(client, "Alpha")
+    _create_conv(client, "Beta")
+    listed = client.get("/conversations")
+    assert listed.status_code == 200
+    assert len(listed.json()["conversations"]) == 2
+
+
+def test_search_blank_query_returns_all(client: TestClient) -> None:
+    _create_conv(client, "Alpha")
+    for q in ("", "   ", "\t"):
+        listed = client.get("/conversations", params={"q": q})
+        assert listed.status_code == 200
+        assert len(listed.json()["conversations"]) == 1
+
+
+def test_search_by_title(client: TestClient) -> None:
+    _create_conv(client, "Meeting notes")
+    _create_conv(client, "Shopping list")
+    listed = client.get("/conversations", params={"q": "meeting"})
+    assert listed.status_code == 200
+    titles = [c["title"] for c in listed.json()["conversations"]]
+    assert titles == ["Meeting notes"]
+
+
+def test_search_by_message_content(client: TestClient) -> None:
+    conv_id = _create_conv(client, "Random title")
+    _send_message(client, conv_id, "What is the capital of France?")
+    _create_conv(client, "Unrelated")
+    listed = client.get("/conversations", params={"q": "capital"})
+    assert listed.status_code == 200
+    ids = [c["id"] for c in listed.json()["conversations"]]
+    assert ids == [conv_id]
+
+
+def test_search_case_insensitive(client: TestClient) -> None:
+    _create_conv(client, "Python Tutorial")
+    listed = client.get("/conversations", params={"q": "PYTHON"})
+    assert listed.status_code == 200
+    assert len(listed.json()["conversations"]) == 1
+
+
+def test_search_no_match_returns_empty(client: TestClient) -> None:
+    _create_conv(client, "Alpha")
+    listed = client.get("/conversations", params={"q": "zzznomatch"})
+    assert listed.status_code == 200
+    assert listed.json()["conversations"] == []
+
+
+def test_search_duplicate_messages_returns_conversation_once(client: TestClient) -> None:
+    conv_id = _create_conv(client, "Dedup test")
+    _send_message(client, conv_id, "hello world")
+    _send_message(client, conv_id, "hello again")
+    listed = client.get("/conversations", params={"q": "hello"})
+    assert listed.status_code == 200
+    ids = [c["id"] for c in listed.json()["conversations"]]
+    assert ids == [conv_id]
+
+
+def test_search_sorted_by_updated_at_desc(client: TestClient) -> None:
+    first_id = _create_conv(client, "First conversation")
+    second_id = _create_conv(client, "Second conversation")
+    # second was created later so should appear first
+    listed = client.get("/conversations", params={"q": "conversation"})
+    assert listed.status_code == 200
+    ids = [c["id"] for c in listed.json()["conversations"]]
+    assert ids == [second_id, first_id]
