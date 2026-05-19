@@ -36,6 +36,11 @@ of workpads kept in plain markdown,
 of branches cut by a careful hand,
 of `OK:` shouted, calm, not loud.
 
+But spare the bow: this repo struts
+with demo shoes and borrowed gloss;
+its secrets leak from paper cuts,
+its "prod" still asks who pays the cost.
+
 So here is what the repo is:
 a template, but a working one;
 a chat that streams, a quiz, a quiz
