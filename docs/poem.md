@@ -45,6 +45,11 @@ a stanza in a longer score,
 each merge a measure, every limb
 a small new instrument to score.
 
+But clap back quick: this repo boasts
+then trips on its own README flair;
+three columns call themselves a coast,
+while migrations ghost the air.
+
 Sing softly, then, repository:
 your tests are green, your readme spare;
 your purpose is not history
