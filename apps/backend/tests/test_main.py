@@ -122,6 +122,53 @@ def test_create_conversation_defaults_blank_title(client: TestClient) -> None:
     assert_summary(resp.json()["conversation"], "New chat")
 
 
+def test_rename_conversation_trims_and_persists_title(client: TestClient) -> None:
+    created = client.post("/conversations", json={"title": "Original title"}).json()
+    conversation_id = created["conversation"]["id"]
+
+    renamed = client.patch(
+        f"/conversations/{conversation_id}", json={"title": "  Renamed chat  "}
+    )
+
+    assert renamed.status_code == 200
+    body = renamed.json()
+    assert body["conversation"]["id"] == conversation_id
+    assert body["conversation"]["title"] == "Renamed chat"
+    assert body["conversation"]["created_at"] == created["conversation"]["created_at"]
+    assert body["conversation"]["updated_at"] >= created["conversation"]["updated_at"]
+    assert body["messages"] == []
+
+    fetched = client.get(f"/conversations/{conversation_id}")
+    assert fetched.status_code == 200
+    assert fetched.json() == body
+
+    listed = client.get("/conversations")
+    assert listed.status_code == 200
+    assert listed.json()["conversations"] == [body["conversation"]]
+
+
+def test_rename_conversation_rejects_blank_title(client: TestClient) -> None:
+    conversation_id = client.post("/conversations").json()["conversation"]["id"]
+
+    resp = client.patch(
+        f"/conversations/{conversation_id}", json={"title": "   \n\t  "}
+    )
+
+    assert resp.status_code == 400
+    assert resp.json() == {"detail": "Conversation title must not be blank."}
+
+    fetched = client.get(f"/conversations/{conversation_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["conversation"]["title"] == "New chat"
+
+
+def test_rename_missing_conversation_returns_404(client: TestClient) -> None:
+    resp = client.patch("/conversations/missing", json={"title": "Renamed chat"})
+
+    assert resp.status_code == 404
+    assert resp.json() == {"detail": "Conversation not found."}
+
+
 def test_delete_conversation_cascades_messages(client: TestClient) -> None:
     conversation_id = client.post("/conversations").json()["conversation"]["id"]
     status_code, body = consume_sse_chat(client, conversation_id, "hello")
