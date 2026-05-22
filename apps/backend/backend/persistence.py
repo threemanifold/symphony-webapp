@@ -245,9 +245,7 @@ class ChatStore:
             ).fetchone()
             if existing is None:
                 return False
-            conn.execute(
-                "DELETE FROM conversations WHERE id = ?", (conversation_id,)
-            )
+            conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
         return True
 
     def append_chat_turn(

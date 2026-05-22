@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 import anthropic
@@ -90,7 +91,7 @@ def utc_now() -> str:
 
 
 def get_store() -> ChatStore:
-    return app.state.store
+    return cast(ChatStore, app.state.store)
 
 
 def normalize_title(title: str | None) -> str:
@@ -113,9 +114,7 @@ def title_from_message(message: str) -> str:
     return title[:60] if title else DEFAULT_TITLE
 
 
-def require_conversation(
-    store: ChatStore, conversation_id: str
-) -> ConversationSummary:
+def require_conversation(store: ChatStore, conversation_id: str) -> ConversationSummary:
     conversation = store.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
@@ -131,9 +130,7 @@ def health() -> dict[str, str]:
 def list_conversations(
     q: str | None = None, store: ChatStore = Depends(get_store)
 ) -> ConversationListResponse:
-    return ConversationListResponse(
-        conversations=store.list_conversations(q or "")
-    )
+    return ConversationListResponse(conversations=store.list_conversations(q or ""))
 
 
 @app.post(
@@ -262,9 +259,7 @@ async def chat(
             content=assistant_content,
             created_at=assistant_created_at,
         )
-        store.append_chat_turn(
-            conversation.id, user_message, assistant_message, title
-        )
+        store.append_chat_turn(conversation.id, user_message, assistant_message, title)
 
         yield "data: [DONE]\n\n"
 
