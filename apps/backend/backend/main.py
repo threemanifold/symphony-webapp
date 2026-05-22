@@ -2,38 +2,20 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import json
-import logging
-import os
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
-import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from backend import provider
 from backend.persistence import (
     ChatRole,
     ChatStore,
     ConversationSummary,
     Message,
-)
-
-logger = logging.getLogger(__name__)
-
-_ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-if not _ANTHROPIC_API_KEY:
-    logger.error(
-        "ANTHROPIC_API_KEY environment variable is not set. "
-        "The /chat endpoint will return HTTP 500 until it is provided."
-    )
-
-_anthropic_client: anthropic.Anthropic | None = (
-    anthropic.Anthropic(api_key=_ANTHROPIC_API_KEY) if _ANTHROPIC_API_KEY else None
-)
-_async_anthropic_client: anthropic.AsyncAnthropic | None = (
-    anthropic.AsyncAnthropic(api_key=_ANTHROPIC_API_KEY) if _ANTHROPIC_API_KEY else None
 )
 
 DEFAULT_TITLE = "New chat"
@@ -194,7 +176,7 @@ async def chat(
     if not content:
         raise HTTPException(status_code=400, detail="Message must not be blank.")
 
-    if _async_anthropic_client is None:
+    if provider.get_async_client() is None:
         raise HTTPException(
             status_code=500,
             detail="ANTHROPIC_API_KEY is not configured. Unable to process chat messages.",
@@ -205,37 +187,16 @@ async def chat(
 
     user_created_at = utc_now()
     user_msg_id = str(uuid4())
-    api_messages: list[anthropic.types.MessageParam] = [
-        {"role": msg.role, "content": msg.content} for msg in prior_messages
-    ]
-    api_messages.append({"role": "user", "content": content})
+    api_messages = provider.build_provider_messages(prior_messages, content)
 
     async def stream_tokens() -> AsyncIterator[str]:
         chunks: list[str] = []
-        try:
-            async with _async_anthropic_client.messages.stream(
-                model="claude-sonnet-4-6",
-                max_tokens=8096,
-                messages=api_messages,
-            ) as stream:
-                async for text in stream.text_stream:
-                    chunks.append(text)
-                    yield f"data: {json.dumps(text)}\n\n"
-        except anthropic.APIStatusError as exc:
-            if exc.status_code == 429:
-                error_msg = "Rate limit exceeded — please retry shortly"
-            elif exc.status_code >= 500:
-                error_msg = "AI service unavailable"
-            else:
-                error_msg = f"AI request failed ({exc.status_code})"
-            yield f"data: [ERROR] {error_msg}\n\n"
-            return
-        except anthropic.APIConnectionError:
-            yield "data: [ERROR] Connection to AI service failed\n\n"
-            return
-        except Exception as exc:
-            yield f"data: [ERROR] {exc}\n\n"
-            return
+        async for event in provider.stream_chat_events(api_messages):
+            if isinstance(event, provider.ProviderError):
+                yield f"data: [ERROR] {event.user_message}\n\n"
+                return
+            chunks.append(event.text)
+            yield f"data: {json.dumps(event.text)}\n\n"
 
         assistant_content = "".join(chunks)
         assistant_created_at = utc_now()
