@@ -1,163 +1,33 @@
 import { expect, test } from '@playwright/test';
 
-type ChatMessage = {
-  id: string;
-  conversation_id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  created_at: string;
-};
-
-type Conversation = {
-  id: string;
-  title: string;
-  created_at: string;
-  updated_at: string;
-};
+import {
+  createConversation,
+  deleteConversation,
+  mockChatApi,
+  openApp,
+  openConversation,
+  paced,
+  sendChatMessage,
+} from './chat-helpers';
 
 test('walkthrough: multi-chat lifecycle', async ({ page }) => {
-  const now = '2026-05-11T12:00:00.000Z';
-  const conversations = new Map<string, Conversation>();
-  const messages = new Map<string, ChatMessage[]>();
-  let nextConversation = 1;
-  let nextMessage = 1;
-
-  await page.route('**/conversations/**', async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    const conversationId = url.pathname.split('/').at(-1) ?? '';
-
-    if (request.method() === 'GET') {
-      const conversation = conversations.get(conversationId);
-
-      await route.fulfill({
-        contentType: 'application/json',
-        json: {
-          conversation,
-          messages: messages.get(conversationId) ?? [],
-        },
-      });
-      return;
-    }
-
-    if (request.method() === 'DELETE') {
-      conversations.delete(conversationId);
-      messages.delete(conversationId);
-      await route.fulfill({ status: 204 });
-      return;
-    }
-
-    await route.fallback();
+  await mockChatApi(page, {
+    now: '2026-05-11T12:00:00.000Z',
+    conversationTitles: ['Chat A', 'Chat B'],
+    replyFactory: ({ conversation }) => `Reply for ${conversation.title}`,
   });
 
-  await page.route('**/conversations', async (route) => {
-    const request = route.request();
+  await openApp(page);
 
-    if (request.method() === 'GET') {
-      await route.fulfill({
-        contentType: 'application/json',
-        json: { conversations: Array.from(conversations.values()) },
-      });
-      return;
-    }
+  await paced(() => createConversation(page), page);
+  await paced(() => sendChatMessage(page, 'Hello from Chat A'), page);
 
-    if (request.method() === 'POST') {
-      const id = `chat-${nextConversation}`;
-      const conversation: Conversation = {
-        id,
-        title: nextConversation === 1 ? 'Chat A' : 'Chat B',
-        created_at: now,
-        updated_at: now,
-      };
-      nextConversation += 1;
-      conversations.set(id, conversation);
-      messages.set(id, []);
+  await paced(() => createConversation(page), page);
+  await paced(() => sendChatMessage(page, 'Hello from Chat B'), page);
 
-      await route.fulfill({
-        contentType: 'application/json',
-        json: { conversation, messages: [] },
-      });
-      return;
-    }
-
-    await route.fallback();
-  });
-
-  await page.route('**/chat', async (route) => {
-    const body = route.request().postDataJSON() as {
-      conversation_id: string;
-      message: string;
-    };
-    const conversation = conversations.get(body.conversation_id);
-
-    if (!conversation) {
-      await route.fulfill({ status: 404 });
-      return;
-    }
-
-    const userMessage: ChatMessage = {
-      id: `message-${nextMessage++}`,
-      conversation_id: conversation.id,
-      role: 'user',
-      content: body.message,
-      created_at: now,
-    };
-    const assistantMessage: ChatMessage = {
-      id: `message-${nextMessage++}`,
-      conversation_id: conversation.id,
-      role: 'assistant',
-      content: `Reply for ${conversation.title}`,
-      created_at: now,
-    };
-    const threadMessages = [
-      ...(messages.get(conversation.id) ?? []),
-      userMessage,
-      assistantMessage,
-    ];
-
-    conversation.updated_at = now;
-    conversations.delete(conversation.id);
-    conversations.set(conversation.id, conversation);
-    messages.set(conversation.id, threadMessages);
-
-    await route.fulfill({
-      contentType: 'application/json',
-      json: {
-        conversation,
-        messages: threadMessages,
-        reply: assistantMessage,
-      },
-    });
-  });
-
-  await page.goto('/');
-  await page.waitForTimeout(500);
-
-  await page.getByRole('button', { name: 'New chat' }).click();
-  await page.waitForTimeout(500);
-
-  await page.getByLabel('Message').fill('Hello from Chat A');
-  await page.waitForTimeout(500);
-  await page.getByRole('button', { name: 'Send' }).click();
-  await page.waitForTimeout(500);
-
-  await page.getByRole('button', { name: 'New chat' }).click();
-  await page.waitForTimeout(500);
-
-  await page.getByLabel('Message').fill('Hello from Chat B');
-  await page.waitForTimeout(500);
-  await page.getByRole('button', { name: 'Send' }).click();
-  await page.waitForTimeout(500);
-
-  await page.getByRole('button', { name: 'Open Chat A' }).click();
-  await page.waitForTimeout(500);
-
-  await page.getByRole('button', { name: 'Open Chat B' }).click();
-  await page.waitForTimeout(500);
-
-  await page.getByRole('button', { name: 'Delete Chat A' }).click();
-  await page.waitForTimeout(500);
-
+  await paced(() => openConversation(page, 'Chat A'), page);
+  await paced(() => openConversation(page, 'Chat B'), page);
+  await paced(() => deleteConversation(page, 'Chat A'), page);
   await page.waitForTimeout(1500);
 
   await expect(page.getByRole('button', { name: 'Open Chat B' })).toBeVisible();
