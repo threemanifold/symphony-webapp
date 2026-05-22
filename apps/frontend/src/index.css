@@ -81,7 +81,8 @@ h2 {
 }
 
 .new-chat-button,
-.chat-form button {
+.chat-form button,
+.rename-actions button:first-child {
   min-height: 44px;
   border: 0;
   border-radius: 8px;
@@ -164,6 +165,46 @@ h2 {
   padding-bottom: 18px;
 }
 
+.thread-title {
+  min-width: 0;
+}
+
+.thread-title h2 {
+  overflow-wrap: anywhere;
+}
+
+.rename-button,
+.rename-actions button:last-child {
+  min-height: 38px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #486581;
+  background: #ffffff;
+}
+
+.rename-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 360px) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.rename-form input {
+  min-height: 44px;
+}
+
+.rename-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.rename-error {
+  grid-column: 1 / -1;
+  color: #b91c1c;
+  font-size: 0.9rem;
+}
+
 .chat-output {
   display: block;
   min-height: 0;
@@ -237,6 +278,10 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+input[aria-invalid="true"] {
+  border-color: #ef4444;
+}
+
 @media (max-width: 720px) {
   .chat-shell {
     grid-template-columns: 1fr;
@@ -255,8 +300,18 @@ button:focus-visible {
 }
 
 @media (max-width: 520px) {
-  .chat-form {
+  .chat-form,
+  .rename-form {
     grid-template-columns: 1fr;
+  }
+
+  .thread-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rename-button {
+    align-self: start;
   }
 
   .chat-form button {

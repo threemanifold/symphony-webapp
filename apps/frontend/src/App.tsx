@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react';
+import type { FormEvent, KeyboardEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
 type ChatRole = 'user' | 'assistant';
@@ -34,6 +34,20 @@ async function parseJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function parseErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { detail?: unknown };
+
+    if (typeof payload.detail === 'string' && payload.detail.trim()) {
+      return payload.detail;
+    }
+  } catch {
+    // Use the UI fallback when a server error is not JSON.
+  }
+
+  return fallback;
+}
+
 function formatConversationTime(value: string) {
   const timestamp = new Date(value);
 
@@ -63,6 +77,12 @@ function App() {
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const [conversationSearch, setConversationSearch] = useState('');
   const [conversationLoadError, setConversationLoadError] = useState(false);
+  const [renamingConversationId, setRenamingConversationId] = useState<
+    string | null
+  >(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [renameError, setRenameError] = useState('');
+  const [isRenamingConversation, setIsRenamingConversation] = useState(false);
 
   const selectedConversation = useMemo(
     () =>
@@ -245,6 +265,88 @@ function App() {
     }
   }
 
+  function startRenameConversation() {
+    if (!selectedConversation) {
+      return;
+    }
+
+    setRenamingConversationId(selectedConversation.id);
+    setRenameTitle(selectedConversation.title);
+    setRenameError('');
+  }
+
+  function cancelRenameConversation() {
+    setRenamingConversationId(null);
+    setRenameTitle('');
+    setRenameError('');
+    setIsRenamingConversation(false);
+  }
+
+  function handleRenameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Escape') {
+      cancelRenameConversation();
+    }
+  }
+
+  async function saveConversationTitle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const conversationId = renamingConversationId;
+    const trimmedTitle = renameTitle.trim();
+
+    if (!conversationId) {
+      return;
+    }
+
+    if (!trimmedTitle) {
+      setRenameError('Enter a conversation title.');
+      return;
+    }
+
+    setIsRenamingConversation(true);
+    setRenameError('');
+
+    try {
+      const response = await fetch(`/conversations/${conversationId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title: trimmedTitle }),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          await parseErrorMessage(
+            response,
+            'Unable to rename this conversation. Try again.',
+          ),
+        );
+      }
+
+      const payload = (await response.json()) as ConversationDetail;
+      setConversations((currentConversations) =>
+        currentConversations.map((conversation) =>
+          conversation.id === payload.conversation.id
+            ? payload.conversation
+            : conversation,
+        ),
+      );
+      setMessages(payload.messages);
+      setRenamingConversationId(null);
+      setRenameTitle('');
+      setStatus('');
+    } catch (error) {
+      setRenameError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to rename this conversation. Try again.',
+      );
+    } finally {
+      setIsRenamingConversation(false);
+    }
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -410,10 +512,63 @@ function App() {
 
       <section className="chat-thread" aria-label="Selected conversation">
         <header className="thread-header">
-          <div>
+          <div className="thread-title">
             <p className="thread-label">Conversation</p>
-            <h2>{selectedConversation?.title ?? 'No conversation selected'}</h2>
+            {selectedConversation &&
+            renamingConversationId === selectedConversation.id ? (
+              <form className="rename-form" onSubmit={saveConversationTitle}>
+                <label htmlFor="conversation-title">Conversation title</label>
+                <input
+                  id="conversation-title"
+                  name="conversation-title"
+                  type="text"
+                  autoComplete="off"
+                  value={renameTitle}
+                  onChange={(event) => {
+                    setRenameTitle(event.target.value);
+                    if (renameError) {
+                      setRenameError('');
+                    }
+                  }}
+                  onKeyDown={handleRenameKeyDown}
+                  aria-invalid={renameError ? 'true' : undefined}
+                  aria-describedby={
+                    renameError ? 'conversation-title-error' : undefined
+                  }
+                  autoFocus
+                />
+                <div className="rename-actions">
+                  <button type="submit" disabled={isRenamingConversation}>
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelRenameConversation}
+                    disabled={isRenamingConversation}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {renameError && (
+                  <p className="rename-error" id="conversation-title-error">
+                    {renameError}
+                  </p>
+                )}
+              </form>
+            ) : (
+              <h2>{selectedConversation?.title ?? 'No conversation selected'}</h2>
+            )}
           </div>
+          {selectedConversation &&
+            renamingConversationId !== selectedConversation.id && (
+              <button
+                className="rename-button"
+                type="button"
+                onClick={startRenameConversation}
+              >
+                Rename
+              </button>
+            )}
         </header>
 
         <output className="chat-output" aria-live="polite">
