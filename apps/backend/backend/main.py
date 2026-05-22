@@ -73,6 +73,10 @@ class ConversationCreateRequest(BaseModel):
     title: str | None = None
 
 
+class ConversationRenameRequest(BaseModel):
+    title: str = Field(min_length=1)
+
+
 class ChatRequest(BaseModel):
     conversation_id: str
     message: str = Field(min_length=1)
@@ -175,6 +179,15 @@ def normalize_title(title: str | None) -> str:
     if title is None or not title.strip():
         return DEFAULT_TITLE
     return title.strip()
+
+
+def normalize_rename_title(title: str) -> str:
+    normalized = title.strip()
+    if not normalized:
+        raise HTTPException(
+            status_code=400, detail="Conversation title must not be blank."
+        )
+    return normalized
 
 
 def title_from_message(message: str) -> str:
@@ -288,6 +301,29 @@ def get_conversation(
     conversation_id: str, db_path: str = Depends(get_db_path)
 ) -> ConversationDetail:
     with open_db(db_path) as conn:
+        conversation = get_conversation_or_404(conn, conversation_id)
+        messages = list_messages(conn, conversation_id)
+    return ConversationDetail(conversation=conversation, messages=messages)
+
+
+@app.patch("/conversations/{conversation_id}", response_model=ConversationDetail)
+def rename_conversation(
+    conversation_id: str,
+    request: ConversationRenameRequest,
+    db_path: str = Depends(get_db_path),
+) -> ConversationDetail:
+    title = normalize_rename_title(request.title)
+    updated_at = utc_now()
+    with open_db(db_path) as conn:
+        get_conversation_or_404(conn, conversation_id)
+        conn.execute(
+            """
+            UPDATE conversations
+            SET title = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (title, updated_at, conversation_id),
+        )
         conversation = get_conversation_or_404(conn, conversation_id)
         messages = list_messages(conn, conversation_id)
     return ConversationDetail(conversation=conversation, messages=messages)
