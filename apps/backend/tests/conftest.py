@@ -24,5 +24,5 @@ def mock_anthropic_client() -> Generator[MagicMock, None, None]:
     mock_client = MagicMock()
     mock_client.messages = mock_messages
 
-    with patch("backend.main._async_anthropic_client", mock_client):
+    with patch("backend.provider._async_anthropic_client", mock_client):
         yield mock_client

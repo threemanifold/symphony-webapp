@@ -404,7 +404,7 @@ def test_chat_emits_error_event_on_rate_limit(client: TestClient) -> None:
         response=MagicMock(status_code=429),
         body={},
     )
-    with patch("backend.main._async_anthropic_client", _make_error_stream(exc)):
+    with patch("backend.provider._async_anthropic_client", _make_error_stream(exc)):
         error_text = _sse_error_text(client, conversation_id, "hello")
     assert "rate limit" in error_text.lower()
 
@@ -416,7 +416,7 @@ def test_chat_emits_error_event_on_server_error(client: TestClient) -> None:
         response=MagicMock(status_code=500),
         body={},
     )
-    with patch("backend.main._async_anthropic_client", _make_error_stream(exc)):
+    with patch("backend.provider._async_anthropic_client", _make_error_stream(exc)):
         error_text = _sse_error_text(client, conversation_id, "hello")
     assert "unavailable" in error_text.lower()
 
@@ -424,14 +424,14 @@ def test_chat_emits_error_event_on_server_error(client: TestClient) -> None:
 def test_chat_emits_error_event_on_connection_error(client: TestClient) -> None:
     conversation_id = client.post("/conversations").json()["conversation"]["id"]
     exc = anthropic.APIConnectionError(request=MagicMock())
-    with patch("backend.main._async_anthropic_client", _make_error_stream(exc)):
+    with patch("backend.provider._async_anthropic_client", _make_error_stream(exc)):
         error_text = _sse_error_text(client, conversation_id, "hello")
     assert "connection" in error_text.lower()
 
 
 def test_chat_returns_500_when_api_key_missing(client: TestClient) -> None:
     conversation_id = client.post("/conversations").json()["conversation"]["id"]
-    with patch("backend.main._async_anthropic_client", None):
+    with patch("backend.provider._async_anthropic_client", None):
         resp = client.post(
             "/chat",
             json={"conversation_id": conversation_id, "message": "hello"},
