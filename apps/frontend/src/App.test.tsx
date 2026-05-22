@@ -130,6 +130,35 @@ function createPersistentChatApi() {
       return { ok: true } as Response;
     }
 
+    if (conversationMatch && method === 'PATCH') {
+      const conversation = conversations.find(
+        (item) => item.id === conversationMatch[1],
+      );
+      if (!conversation) {
+        return { ok: false } as Response;
+      }
+
+      const body = JSON.parse(init?.body?.toString() ?? '{}') as {
+        title?: string;
+      };
+      const title = body.title?.trim() ?? '';
+      if (!title) {
+        return {
+          ok: false,
+          json: async () => ({
+            detail: 'Conversation title must not be blank.',
+          }),
+        } as Response;
+      }
+
+      conversation.title = title;
+      conversation.updated_at = now();
+      return okJson({
+        conversation,
+        messages: messages.get(conversation.id) ?? [],
+      });
+    }
+
     if (path === '/chat' && method === 'POST') {
       const body = JSON.parse(init?.body?.toString() ?? '{}') as {
         conversation_id: string;
@@ -411,6 +440,128 @@ describe('App', () => {
       },
       body: JSON.stringify({}),
     });
+  });
+
+  it('renames the selected conversation and updates the sidebar and header', async () => {
+    const renamedConversation = {
+      ...firstConversation,
+      title: 'Renamed planning chat',
+      updated_at: '2026-05-10T15:00:00.000Z',
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        okJson({ conversations: [firstConversation, secondConversation] }),
+      )
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      )
+      .mockResolvedValueOnce(
+        okJson({ conversation: renamedConversation, messages: [] }),
+      );
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'First chat' }))
+      .toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Conversation title'), {
+      target: { value: ' Renamed planning chat ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Renamed planning chat' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open Renamed planning chat' }),
+    ).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      `/conversations/${firstConversation.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Renamed planning chat' }),
+      },
+    );
+  });
+
+  it('keeps the existing conversation title when rename is canceled', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      );
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'First chat' }))
+      .toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Conversation title'), {
+      target: { value: 'Draft title' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByRole('heading', { name: 'First chat' })).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('Draft title')).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('blocks empty conversation titles before calling the rename API', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      );
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'First chat' }))
+      .toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Conversation title'), {
+      target: { value: '   ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(screen.getByText('Enter a conversation title.')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('displays backend rename validation errors without changing the title', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      )
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ detail: 'Conversation title is already taken.' }),
+      } as Response);
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'First chat' }))
+      .toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Conversation title'), {
+      target: { value: 'Duplicate title' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(
+      await screen.findByText('Conversation title is already taken.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open First chat' }))
+      .toBeInTheDocument();
   });
 
   it('sends a message with conversation_id and renders the persisted echo response', async () => {
