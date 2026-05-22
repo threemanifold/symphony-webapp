@@ -6,8 +6,8 @@ import {
   listConversations,
   loadConversation,
   renameConversation,
-  streamChatResponse,
 } from './chatApi';
+import { streamChatResponse } from './chatStream';
 import type { ChatMessage, ConversationSummary } from './chatTypes';
 
 const selectedConversationStorageKey = 'symphony.selectedConversationId';
