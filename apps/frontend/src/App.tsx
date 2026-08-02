@@ -1,5 +1,5 @@
-import type { FormEvent, KeyboardEvent } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type ChatRole = 'user' | 'assistant';
 
@@ -63,14 +63,6 @@ function App() {
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const [conversationSearch, setConversationSearch] = useState('');
   const [conversationLoadError, setConversationLoadError] = useState(false);
-  const [renamingConversationId, setRenamingConversationId] = useState<
-    string | null
-  >(null);
-  const [renameDraft, setRenameDraft] = useState('');
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const [isSubmittingRename, setIsSubmittingRename] = useState(false);
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const renameJustSubmittedRef = useRef(false);
 
   const selectedConversation = useMemo(
     () =>
@@ -224,92 +216,6 @@ function App() {
       setIsCreatingConversation(false);
     }
   }
-
-  function startRename(conversation: ConversationSummary) {
-    setRenamingConversationId(conversation.id);
-    setRenameDraft(conversation.title);
-    setRenameError(null);
-    renameJustSubmittedRef.current = false;
-  }
-
-  function cancelRename() {
-    setRenamingConversationId(null);
-    setRenameDraft('');
-    setRenameError(null);
-    setIsSubmittingRename(false);
-  }
-
-  async function submitRename(conversationId: string) {
-    const trimmedTitle = renameDraft.trim();
-    if (!trimmedTitle) {
-      setRenameError('Title must not be blank.');
-      return;
-    }
-
-    setIsSubmittingRename(true);
-    setRenameError(null);
-    renameJustSubmittedRef.current = true;
-
-    try {
-      const patchResponse = await fetch(`/conversations/${conversationId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: trimmedTitle }),
-      });
-
-      const updatedConversation =
-        await parseJson<ConversationSummary>(patchResponse);
-
-      setConversations((currentConversations) =>
-        currentConversations.map((conversation) =>
-          conversation.id === updatedConversation.id
-            ? updatedConversation
-            : conversation,
-        ),
-      );
-      setRenamingConversationId(null);
-      setRenameDraft('');
-      setRenameError(null);
-    } catch {
-      setRenameError('Unable to rename conversation. Try again.');
-    } finally {
-      setIsSubmittingRename(false);
-      renameJustSubmittedRef.current = false;
-    }
-  }
-
-  function handleRenameKeyDown(
-    event: KeyboardEvent<HTMLInputElement>,
-    conversationId: string,
-  ) {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      cancelRename();
-      return;
-    }
-
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      void submitRename(conversationId);
-    }
-  }
-
-  function handleRenameBlur() {
-    if (renameJustSubmittedRef.current) {
-      return;
-    }
-    if (isSubmittingRename) {
-      return;
-    }
-    cancelRename();
-  }
-
-  useEffect(() => {
-    if (renamingConversationId && renameInputRef.current) {
-      renameInputRef.current.focus();
-      renameInputRef.current.select();
-    }
-  }, [renamingConversationId]);
 
   async function deleteConversation(conversationId: string) {
     try {
@@ -466,94 +372,34 @@ function App() {
           <p className="sidebar-status">Unable to load conversations. Try again.</p>
         ) : filteredConversations.length > 0 ? (
           <ol className="conversation-list">
-            {filteredConversations.map((conversation) => {
-              const isRenaming = renamingConversationId === conversation.id;
-              const renameInputId = `rename-conversation-${conversation.id}`;
-
-              return (
-                <li key={conversation.id}>
-                  {isRenaming ? (
-                    <div className="conversation-rename" role="group">
-                      <label htmlFor={renameInputId}>
-                        {`Rename ${conversation.title}`}
-                      </label>
-                      <input
-                        id={renameInputId}
-                        ref={renameInputRef}
-                        className="conversation-rename-input"
-                        type="text"
-                        autoComplete="off"
-                        value={renameDraft}
-                        aria-invalid={renameError ? true : undefined}
-                        aria-describedby={
-                          renameError
-                            ? `rename-error-${conversation.id}`
-                            : undefined
-                        }
-                        disabled={isSubmittingRename}
-                        onChange={(event) => {
-                          setRenameDraft(event.target.value);
-                          if (renameError) {
-                            setRenameError(null);
-                          }
-                        }}
-                        onKeyDown={(event) =>
-                          handleRenameKeyDown(event, conversation.id)
-                        }
-                        onBlur={handleRenameBlur}
-                      />
-                      {renameError && (
-                        <p
-                          className="rename-error"
-                          id={`rename-error-${conversation.id}`}
-                          role="alert"
-                        >
-                          {renameError}
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <button
-                      className="conversation-button"
-                      type="button"
-                      aria-label={`Open ${conversation.title}`}
-                      aria-current={
-                        selectedConversationId === conversation.id
-                          ? 'page'
-                          : undefined
-                      }
-                      onClick={() =>
-                        setSelectedConversationId(conversation.id)
-                      }
-                    >
-                      <span>{conversation.title}</span>
-                      <time dateTime={conversation.updated_at}>
-                        {formatConversationTime(conversation.updated_at)}
-                      </time>
-                    </button>
-                  )}
-                  {!isRenaming && (
-                    <button
-                      className="rename-button"
-                      type="button"
-                      aria-label={`Rename ${conversation.title}`}
-                      onClick={() => startRename(conversation)}
-                    >
-                      Rename
-                    </button>
-                  )}
-                  <button
-                    className="delete-button"
-                    type="button"
-                    aria-label={`Delete ${conversation.title}`}
-                    disabled={isRenaming}
-                    onClick={() => void deleteConversation(conversation.id)}
-                  >
-                    Delete
-                  </button>
-                </li>
-              );
-            })}
+            {filteredConversations.map((conversation) => (
+              <li key={conversation.id}>
+                <button
+                  className="conversation-button"
+                  type="button"
+                  aria-label={`Open ${conversation.title}`}
+                  aria-current={
+                    selectedConversationId === conversation.id
+                      ? 'page'
+                      : undefined
+                  }
+                  onClick={() => setSelectedConversationId(conversation.id)}
+                >
+                  <span>{conversation.title}</span>
+                  <time dateTime={conversation.updated_at}>
+                    {formatConversationTime(conversation.updated_at)}
+                  </time>
+                </button>
+                <button
+                  className="delete-button"
+                  type="button"
+                  aria-label={`Delete ${conversation.title}`}
+                  onClick={() => void deleteConversation(conversation.id)}
+                >
+                  Delete
+                </button>
+              </li>
+            ))}
           </ol>
         ) : conversations.length > 0 ? (
           <p className="sidebar-status">No conversations match this search.</p>

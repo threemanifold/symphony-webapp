@@ -10,6 +10,10 @@
 #   2. fileUpload mutation -> presigned uploadUrl + permanent assetUrl + required headers.
 #   3. PUT the binary to uploadUrl with those headers.
 #   4. attachmentCreate(issueId, title, url=assetUrl) -> issue's Attachments rail.
+#   5. commentCreate embedding the video as markdown -> inline player in the
+#      comment thread. The Attachments rail cannot play uploads.linear.app
+#      files (sandboxed iframe, no CORS); Linear only renders uploaded media
+#      inside markdown bodies, where `![...](assetUrl)` becomes a video node.
 set -euo pipefail
 
 if [ -z "${LINEAR_API_KEY:-}" ]; then
@@ -116,4 +120,25 @@ if [ "$att_ok" != "true" ] || [ -z "$att_url" ]; then
   exit 1
 fi
 
-echo "OK: $issue_id attached $att_url"
+# 5. Post a comment embedding the video so it plays inline on the ticket.
+# Best-effort: the upload + attachment already succeeded, so a comment
+# failure warns instead of failing the script (a retry would duplicate
+# the attachment).
+m='mutation($iid: String!, $body: String!) {
+  commentCreate(input: { issueId: $iid, body: $body }) {
+    success
+    comment { id }
+  }
+}'
+body="🎬 Walkthrough: $filename
+
+![walkthrough]($asset_url)"
+vars=$(jq -n --arg iid "$internal_id" --arg body "$body" '{iid:$iid, body:$body}')
+cmt_resp=$(linear_call "$m" "$vars")
+cmt_ok=$(printf '%s' "$cmt_resp" | jq -r '.data.commentCreate.success // false')
+if [ "$cmt_ok" != "true" ]; then
+  echo "warning: inline video comment failed (attachment still created)" >&2
+  echo "$cmt_resp" >&2
+fi
+
+echo "OK: $issue_id attached $att_url (inline comment: $cmt_ok)"
