@@ -300,14 +300,111 @@ def test_list_conversations_blank_search_preserves_unfiltered_behavior(
 def test_missing_conversation_returns_404(client: TestClient) -> None:
     get_resp = client.get("/conversations/missing")
     delete_resp = client.delete("/conversations/missing")
+    patch_resp = client.patch(
+        "/conversations/missing", json={"title": "Renamed"}
+    )
     chat_resp = client.post(
         "/chat", json={"conversation_id": "missing", "message": "hello"}
     )
 
     assert get_resp.status_code == 404
     assert delete_resp.status_code == 404
+    assert patch_resp.status_code == 404
+    assert patch_resp.json() == {"detail": "Conversation not found."}
     assert chat_resp.status_code == 404
     assert chat_resp.json() == {"detail": "Conversation not found."}
+
+
+def test_patch_conversation_renames_and_refreshes_updated_at(
+    client: TestClient,
+) -> None:
+    created = client.post("/conversations", json={"title": "Original"}).json()[
+        "conversation"
+    ]
+    conversation_id = created["id"]
+    original_updated_at = created["updated_at"]
+
+    renamed = client.patch(
+        f"/conversations/{conversation_id}", json={"title": "  Renamed title  "}
+    )
+
+    assert renamed.status_code == 200
+    renamed_body = renamed.json()
+    assert renamed_body["id"] == conversation_id
+    assert renamed_body["title"] == "Renamed title"
+    assert renamed_body["created_at"] == created["created_at"]
+    assert renamed_body["updated_at"] >= original_updated_at
+    assert set(renamed_body.keys()) == {"id", "title", "created_at", "updated_at"}
+
+    fetched = client.get(f"/conversations/{conversation_id}")
+    assert fetched.status_code == 200
+    fetched_conversation = fetched.json()["conversation"]
+    assert fetched_conversation["title"] == "Renamed title"
+    assert fetched_conversation["updated_at"] == renamed_body["updated_at"]
+    assert fetched_conversation["created_at"] == created["created_at"]
+
+
+def test_patch_conversation_rejects_empty_title(client: TestClient) -> None:
+    created = client.post("/conversations", json={"title": "Keep me"}).json()[
+        "conversation"
+    ]
+    conversation_id = created["id"]
+
+    resp = client.patch(f"/conversations/{conversation_id}", json={"title": ""})
+
+    assert resp.status_code in (400, 422)
+    assert "blank" in resp.json()["detail"].lower() or "empty" in resp.json()[
+        "detail"
+    ].lower()
+
+    fetched = client.get(f"/conversations/{conversation_id}")
+    assert fetched.status_code == 200
+    fetched_conversation = fetched.json()["conversation"]
+    assert fetched_conversation["title"] == "Keep me"
+    assert fetched_conversation["updated_at"] == created["updated_at"]
+
+
+def test_patch_conversation_rejects_whitespace_only_title(
+    client: TestClient,
+) -> None:
+    created = client.post("/conversations", json={"title": "Keep me"}).json()[
+        "conversation"
+    ]
+    conversation_id = created["id"]
+
+    resp = client.patch(
+        f"/conversations/{conversation_id}", json={"title": "   \t\n  "}
+    )
+
+    assert resp.status_code in (400, 422)
+    assert "blank" in resp.json()["detail"].lower() or "empty" in resp.json()[
+        "detail"
+    ].lower()
+
+    fetched = client.get(f"/conversations/{conversation_id}")
+    assert fetched.status_code == 200
+    fetched_conversation = fetched.json()["conversation"]
+    assert fetched_conversation["title"] == "Keep me"
+    assert fetched_conversation["updated_at"] == created["updated_at"]
+
+
+def test_patch_conversation_manual_title_survives_chat(client: TestClient) -> None:
+    conversation_id = client.post("/conversations").json()["conversation"]["id"]
+
+    renamed = client.patch(
+        f"/conversations/{conversation_id}", json={"title": "Manually named"}
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "Manually named"
+
+    status_code, body = consume_sse_chat(client, conversation_id, "hello world")
+
+    assert status_code == 200
+    assert body["conversation"]["title"] == "Manually named"
+
+    fetched = client.get(f"/conversations/{conversation_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["conversation"]["title"] == "Manually named"
 
 
 def test_chat_rejects_blank_message(client: TestClient) -> None:
