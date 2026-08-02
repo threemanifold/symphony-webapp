@@ -562,6 +562,205 @@ describe('App', () => {
     expect(screen.queryByText('No conversations yet.')).not.toBeInTheDocument();
   });
 
+  it('renames a conversation via the sidebar affordance and updates sidebar + header from the PATCH response', async () => {
+    const renamedConversation = {
+      ...firstConversation,
+      title: 'Rebranded chat',
+      updated_at: '2026-05-10T14:10:00.000Z',
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      )
+      .mockResolvedValueOnce(okJson(renamedConversation));
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+
+    // header initially shows the original title
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'First chat' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Rename First chat' }),
+    );
+
+    const renameInput = screen.getByRole('textbox', { name: 'Rename First chat' });
+    expect(renameInput).toHaveValue('First chat');
+
+    fireEvent.change(renameInput, { target: { value: 'Rebranded chat' } });
+    fireEvent.keyDown(renameInput, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Open Rebranded chat' }),
+      ).toBeInTheDocument();
+    });
+
+    // sidebar updated
+    expect(
+      screen.queryByRole('button', { name: 'Open First chat' }),
+    ).not.toBeInTheDocument();
+    // header updated
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Rebranded chat' }),
+    ).toBeInTheDocument();
+    // rename UI is gone
+    expect(screen.queryByRole('textbox', { name: 'Rename First chat' })).not.toBeInTheDocument();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      `/conversations/${firstConversation.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Rebranded chat' }),
+      },
+    );
+  });
+
+  it('trims whitespace before submitting the rename', async () => {
+    const renamedConversation = {
+      ...firstConversation,
+      title: 'Trimmed title',
+      updated_at: '2026-05-10T14:10:00.000Z',
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      )
+      .mockResolvedValueOnce(okJson(renamedConversation));
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Rename First chat' }),
+    );
+    const renameInput = screen.getByRole('textbox', { name: 'Rename First chat' });
+    fireEvent.change(renameInput, {
+      target: { value: '   Trimmed title   ' },
+    });
+    fireEvent.keyDown(renameInput, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Open Trimmed title' }),
+      ).toBeInTheDocument();
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      `/conversations/${firstConversation.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Trimmed title' }),
+      },
+    );
+  });
+
+  it('blocks a blank rename submission client-side without firing a request', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      );
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Rename First chat' }),
+    );
+    const renameInput = screen.getByRole('textbox', { name: 'Rename First chat' });
+    fireEvent.change(renameInput, { target: { value: '   ' } });
+    fireEvent.keyDown(renameInput, { key: 'Enter' });
+
+    // visible validation state
+    expect(
+      await screen.findByText('Title must not be blank.'),
+    ).toBeInTheDocument();
+    expect(renameInput).toHaveAttribute('aria-invalid', 'true');
+    // no PATCH request went out
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // sidebar + header keep the old title
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'First chat' }),
+    ).toBeInTheDocument();
+    // still in rename mode
+    expect(screen.getByRole('textbox', { name: 'Rename First chat' })).toBeInTheDocument();
+  });
+
+  it('cancels the rename on Escape without firing a request', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      );
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Rename First chat' }),
+    );
+    const renameInput = screen.getByRole('textbox', { name: 'Rename First chat' });
+    fireEvent.change(renameInput, { target: { value: 'never submitted' } });
+    fireEvent.keyDown(renameInput, { key: 'Escape' });
+
+    expect(screen.queryByRole('textbox', { name: 'Rename First chat' })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open First chat' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'First chat' }),
+    ).toBeInTheDocument();
+    // no PATCH request went out
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the old title and surfaces an error when the backend rejects the rename', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      )
+      .mockResolvedValueOnce({ ok: false, status: 500 } as Response);
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Rename First chat' }),
+    );
+    const renameInput = screen.getByRole('textbox', { name: 'Rename First chat' });
+    fireEvent.change(renameInput, { target: { value: 'server will reject' } });
+    fireEvent.keyDown(renameInput, { key: 'Enter' });
+
+    expect(
+      await screen.findByText('Unable to rename conversation. Try again.'),
+    ).toBeInTheDocument();
+    // sidebar entry still shows the old title (rename UI still open)
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'First chat' }),
+    ).toBeInTheDocument();
+    // rename UI stays open so the user can retry
+    expect(screen.getByRole('textbox', { name: 'Rename First chat' })).toBeInTheDocument();
+  });
+
   it('validates the persistent conversation user flow end to end', async () => {
     const fetchMock = createPersistentChatApi();
     vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
