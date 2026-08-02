@@ -300,9 +300,7 @@ def test_list_conversations_blank_search_preserves_unfiltered_behavior(
 def test_missing_conversation_returns_404(client: TestClient) -> None:
     get_resp = client.get("/conversations/missing")
     delete_resp = client.delete("/conversations/missing")
-    patch_resp = client.patch(
-        "/conversations/missing", json={"title": "Renamed"}
-    )
+    patch_resp = client.patch("/conversations/missing", json={"title": "Renamed"})
     chat_resp = client.post(
         "/chat", json={"conversation_id": "missing", "message": "hello"}
     )
@@ -353,9 +351,10 @@ def test_patch_conversation_rejects_empty_title(client: TestClient) -> None:
     resp = client.patch(f"/conversations/{conversation_id}", json={"title": ""})
 
     assert resp.status_code in (400, 422)
-    assert "blank" in resp.json()["detail"].lower() or "empty" in resp.json()[
-        "detail"
-    ].lower()
+    assert (
+        "blank" in resp.json()["detail"].lower()
+        or "empty" in resp.json()["detail"].lower()
+    )
 
     fetched = client.get(f"/conversations/{conversation_id}")
     assert fetched.status_code == 200
@@ -377,9 +376,10 @@ def test_patch_conversation_rejects_whitespace_only_title(
     )
 
     assert resp.status_code in (400, 422)
-    assert "blank" in resp.json()["detail"].lower() or "empty" in resp.json()[
-        "detail"
-    ].lower()
+    assert (
+        "blank" in resp.json()["detail"].lower()
+        or "empty" in resp.json()["detail"].lower()
+    )
 
     fetched = client.get(f"/conversations/{conversation_id}")
     assert fetched.status_code == 200
