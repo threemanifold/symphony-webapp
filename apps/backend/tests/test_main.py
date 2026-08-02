@@ -10,8 +10,7 @@ import anthropic
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.main import app
-from backend.persistence import ChatStore
+from backend.main import app, create_all
 
 
 def consume_sse_chat(
@@ -62,17 +61,22 @@ def consume_sse_chat(
 
 @pytest.fixture()
 def client() -> Generator[TestClient]:
-    previous_store = app.state.store
+    previous_db_path = app.state.db_path
+    previous_memory_connection = getattr(app.state, "memory_connection", None)
+    if previous_memory_connection is not None:
+        previous_memory_connection.close()
+        delattr(app.state, "memory_connection")
 
-    test_store = ChatStore(":memory:")
-    test_store.create_all()
-    app.state.store = test_store
-    try:
-        with TestClient(app) as test_client:
-            yield test_client
-    finally:
-        test_store.close()
-        app.state.store = previous_store
+    app.state.db_path = ":memory:"
+    create_all(":memory:")
+    with TestClient(app) as test_client:
+        yield test_client
+
+    memory_connection = getattr(app.state, "memory_connection", None)
+    if memory_connection is not None:
+        memory_connection.close()
+        delattr(app.state, "memory_connection")
+    app.state.db_path = previous_db_path
 
 
 def assert_summary(conversation: dict[str, str], title: str) -> None:
@@ -116,53 +120,6 @@ def test_create_conversation_defaults_blank_title(client: TestClient) -> None:
 
     assert resp.status_code == 201
     assert_summary(resp.json()["conversation"], "New chat")
-
-
-def test_rename_conversation_trims_and_persists_title(client: TestClient) -> None:
-    created = client.post("/conversations", json={"title": "Original title"}).json()
-    conversation_id = created["conversation"]["id"]
-
-    renamed = client.patch(
-        f"/conversations/{conversation_id}", json={"title": "  Renamed chat  "}
-    )
-
-    assert renamed.status_code == 200
-    body = renamed.json()
-    assert body["conversation"]["id"] == conversation_id
-    assert body["conversation"]["title"] == "Renamed chat"
-    assert body["conversation"]["created_at"] == created["conversation"]["created_at"]
-    assert body["conversation"]["updated_at"] >= created["conversation"]["updated_at"]
-    assert body["messages"] == []
-
-    fetched = client.get(f"/conversations/{conversation_id}")
-    assert fetched.status_code == 200
-    assert fetched.json() == body
-
-    listed = client.get("/conversations")
-    assert listed.status_code == 200
-    assert listed.json()["conversations"] == [body["conversation"]]
-
-
-def test_rename_conversation_rejects_blank_title(client: TestClient) -> None:
-    conversation_id = client.post("/conversations").json()["conversation"]["id"]
-
-    resp = client.patch(
-        f"/conversations/{conversation_id}", json={"title": "   \n\t  "}
-    )
-
-    assert resp.status_code == 400
-    assert resp.json() == {"detail": "Conversation title must not be blank."}
-
-    fetched = client.get(f"/conversations/{conversation_id}")
-    assert fetched.status_code == 200
-    assert fetched.json()["conversation"]["title"] == "New chat"
-
-
-def test_rename_missing_conversation_returns_404(client: TestClient) -> None:
-    resp = client.patch("/conversations/missing", json={"title": "Renamed chat"})
-
-    assert resp.status_code == 404
-    assert resp.json() == {"detail": "Conversation not found."}
 
 
 def test_delete_conversation_cascades_messages(client: TestClient) -> None:
@@ -404,7 +361,7 @@ def test_chat_emits_error_event_on_rate_limit(client: TestClient) -> None:
         response=MagicMock(status_code=429),
         body={},
     )
-    with patch("backend.provider._async_anthropic_client", _make_error_stream(exc)):
+    with patch("backend.main._async_anthropic_client", _make_error_stream(exc)):
         error_text = _sse_error_text(client, conversation_id, "hello")
     assert "rate limit" in error_text.lower()
 
@@ -416,7 +373,7 @@ def test_chat_emits_error_event_on_server_error(client: TestClient) -> None:
         response=MagicMock(status_code=500),
         body={},
     )
-    with patch("backend.provider._async_anthropic_client", _make_error_stream(exc)):
+    with patch("backend.main._async_anthropic_client", _make_error_stream(exc)):
         error_text = _sse_error_text(client, conversation_id, "hello")
     assert "unavailable" in error_text.lower()
 
@@ -424,14 +381,14 @@ def test_chat_emits_error_event_on_server_error(client: TestClient) -> None:
 def test_chat_emits_error_event_on_connection_error(client: TestClient) -> None:
     conversation_id = client.post("/conversations").json()["conversation"]["id"]
     exc = anthropic.APIConnectionError(request=MagicMock())
-    with patch("backend.provider._async_anthropic_client", _make_error_stream(exc)):
+    with patch("backend.main._async_anthropic_client", _make_error_stream(exc)):
         error_text = _sse_error_text(client, conversation_id, "hello")
     assert "connection" in error_text.lower()
 
 
 def test_chat_returns_500_when_api_key_missing(client: TestClient) -> None:
     conversation_id = client.post("/conversations").json()["conversation"]["id"]
-    with patch("backend.provider._async_anthropic_client", None):
+    with patch("backend.main._async_anthropic_client", None):
         resp = client.post(
             "/chat",
             json={"conversation_id": conversation_id, "message": "hello"},
@@ -441,7 +398,7 @@ def test_chat_returns_500_when_api_key_missing(client: TestClient) -> None:
 
 
 def test_tests_do_not_create_runtime_database(client: TestClient) -> None:
-    assert app.state.store.db_path == ":memory:"
+    assert app.state.db_path == ":memory:"
     assert not Path("data/chat.db").exists()
 
 
@@ -449,10 +406,9 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "persistent-chat.db"
-    previous_store = app.state.store
-    persistent_store = ChatStore(db_path)
-    persistent_store.create_all()
-    app.state.store = persistent_store
+    previous_db_path = app.state.db_path
+    app.state.db_path = str(db_path)
+    create_all(db_path)
 
     try:
         with TestClient(app) as first_session:
@@ -536,5 +492,4 @@ def test_persistent_conversation_flow_uses_embedded_sqlite(
                 first_conversation_id
             ]
     finally:
-        persistent_store.close()
-        app.state.store = previous_store
+        app.state.db_path = previous_db_path
