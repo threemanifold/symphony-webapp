@@ -25,7 +25,7 @@ Example, using the path printed by `record-walkthrough.sh`:
 
     ./.codex/scripts/attach-walkthrough.sh SYM-29 /home/symphony/walkthroughs/20260511-173540-multi-chat-lifecycle.webm
 
-The script uploads to Linear's file store and attaches the resulting URL to the issue's Attachments rail. Prints `OK: <issue> attached <linear-url>` on success. Run it once per produced `.webm` after `record-walkthrough.sh` exits clean and **before** flipping the ticket to `Human Review`.
+The script uploads to Linear's file store, attaches the resulting URL to the issue's Attachments rail, and posts a comment embedding the video so it plays inline on the ticket (the Attachments rail itself cannot play uploaded files). Prints `OK: <issue> attached <linear-url> (inline comment: true)` on success. Run it once per produced `.webm` after `record-walkthrough.sh` exits clean and **before** flipping the ticket to `Human Review`.
 
 ## Writing a watchable narrative test
 
