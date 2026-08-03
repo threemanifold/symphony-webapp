@@ -12,7 +12,7 @@ from uuid import uuid4
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,21 @@ class ConversationListResponse(BaseModel):
 
 class ConversationCreateRequest(BaseModel):
     title: str | None = None
+
+
+class ConversationRenameRequest(BaseModel):
+    title: str = Field(
+        ...,
+        description="New conversation title. Whitespace is trimmed; blank titles are rejected.",
+    )
+
+    @field_validator("title")
+    @classmethod
+    def _title_must_not_be_blank(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Title must not be empty or whitespace-only.")
+        return trimmed
 
 
 class ChatRequest(BaseModel):
@@ -291,6 +306,28 @@ def get_conversation(
         conversation = get_conversation_or_404(conn, conversation_id)
         messages = list_messages(conn, conversation_id)
     return ConversationDetail(conversation=conversation, messages=messages)
+
+
+@app.patch("/conversations/{conversation_id}", response_model=ConversationSummary)
+def rename_conversation(
+    conversation_id: str,
+    request: ConversationRenameRequest,
+    db_path: str = Depends(get_db_path),
+) -> ConversationSummary:
+    new_title = request.title
+    updated_at = utc_now()
+    with open_db(db_path) as conn:
+        existing = get_conversation_or_404(conn, conversation_id)
+        conn.execute(
+            "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
+            (new_title, updated_at, conversation_id),
+        )
+    return ConversationSummary(
+        id=existing.id,
+        title=new_title,
+        created_at=existing.created_at,
+        updated_at=updated_at,
+    )
 
 
 @app.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
