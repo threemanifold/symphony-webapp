@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react';
+import type { FormEvent, KeyboardEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
 type ChatRole = 'user' | 'assistant';
@@ -23,6 +23,8 @@ type ConversationDetail = {
   conversation: ConversationSummary;
   messages: ChatMessage[];
 };
+
+type RenameLocation = 'sidebar' | 'header';
 
 const selectedConversationStorageKey = 'symphony.selectedConversationId';
 
@@ -63,6 +65,15 @@ function App() {
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const [conversationSearch, setConversationSearch] = useState('');
   const [conversationLoadError, setConversationLoadError] = useState(false);
+  const [renamingConversationId, setRenamingConversationId] = useState<
+    string | null
+  >(null);
+  const [renameLocation, setRenameLocation] = useState<RenameLocation | null>(
+    null,
+  );
+  const [renameTitle, setRenameTitle] = useState('');
+  const [renameError, setRenameError] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
 
   const selectedConversation = useMemo(
     () =>
@@ -245,6 +256,108 @@ function App() {
     }
   }
 
+  function beginRename(
+    conversation: ConversationSummary,
+    location: RenameLocation,
+  ) {
+    setRenamingConversationId(conversation.id);
+    setRenameLocation(location);
+    setRenameTitle(conversation.title);
+    setRenameError('');
+    setStatus('');
+  }
+
+  function cancelRename() {
+    setRenamingConversationId(null);
+    setRenameLocation(null);
+    setRenameTitle('');
+    setRenameError('');
+  }
+
+  async function renameConversation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedTitle = renameTitle.trim();
+    if (!trimmedTitle) {
+      setRenameError('Enter a conversation title.');
+      return;
+    }
+
+    if (!renamingConversationId) {
+      return;
+    }
+
+    setIsRenaming(true);
+    setRenameError('');
+
+    try {
+      const updatedConversation = await parseJson<ConversationSummary>(
+        await fetch(`/conversations/${renamingConversationId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: trimmedTitle }),
+        }),
+      );
+
+      setConversations((currentConversations) =>
+        currentConversations.map((conversation) =>
+          conversation.id === updatedConversation.id
+            ? updatedConversation
+            : conversation,
+        ),
+      );
+      cancelRename();
+      setStatus('Conversation renamed.');
+    } catch {
+      setRenameError('Unable to rename this conversation. Try again.');
+    } finally {
+      setIsRenaming(false);
+    }
+  }
+
+  function handleRenameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      cancelRename();
+    }
+  }
+
+  function renameEditor(conversation: ConversationSummary) {
+    const inputId = `rename-${renameLocation}-${conversation.id}`;
+
+    return (
+      <form className="rename-form" onSubmit={renameConversation}>
+        <label htmlFor={inputId}>Rename {conversation.title}</label>
+        <input
+          id={inputId}
+          type="text"
+          autoFocus
+          value={renameTitle}
+          onChange={(event) => {
+            setRenameTitle(event.target.value);
+            setRenameError('');
+          }}
+          onKeyDown={handleRenameKeyDown}
+          aria-invalid={Boolean(renameError)}
+          aria-describedby={renameError ? `${inputId}-error` : undefined}
+        />
+        <div className="rename-actions">
+          <button type="submit" disabled={isRenaming || !renameTitle.trim()}>
+            Save
+          </button>
+          <button type="button" onClick={cancelRename} disabled={isRenaming}>
+            Cancel
+          </button>
+        </div>
+        {renameError && (
+          <p className="rename-error" id={`${inputId}-error`} role="alert">
+            {renameError}
+          </p>
+        )}
+      </form>
+    );
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -374,21 +487,35 @@ function App() {
           <ol className="conversation-list">
             {filteredConversations.map((conversation) => (
               <li key={conversation.id}>
+                {renamingConversationId === conversation.id &&
+                renameLocation === 'sidebar' ? (
+                  renameEditor(conversation)
+                ) : (
+                  <button
+                    className="conversation-button"
+                    type="button"
+                    aria-label={`Open ${conversation.title}`}
+                    aria-current={
+                      selectedConversationId === conversation.id
+                        ? 'page'
+                        : undefined
+                    }
+                    onClick={() => setSelectedConversationId(conversation.id)}
+                  >
+                    <span>{conversation.title}</span>
+                    <time dateTime={conversation.updated_at}>
+                      {formatConversationTime(conversation.updated_at)}
+                    </time>
+                  </button>
+                )}
                 <button
-                  className="conversation-button"
+                  className="rename-button"
                   type="button"
-                  aria-label={`Open ${conversation.title}`}
-                  aria-current={
-                    selectedConversationId === conversation.id
-                      ? 'page'
-                      : undefined
-                  }
-                  onClick={() => setSelectedConversationId(conversation.id)}
+                  aria-label={`Rename ${conversation.title}`}
+                  onClick={() => beginRename(conversation, 'sidebar')}
+                  disabled={isRenaming}
                 >
-                  <span>{conversation.title}</span>
-                  <time dateTime={conversation.updated_at}>
-                    {formatConversationTime(conversation.updated_at)}
-                  </time>
+                  Rename
                 </button>
                 <button
                   className="delete-button"
@@ -412,7 +539,26 @@ function App() {
         <header className="thread-header">
           <div>
             <p className="thread-label">Conversation</p>
-            <h2>{selectedConversation?.title ?? 'No conversation selected'}</h2>
+            {selectedConversation &&
+            renamingConversationId === selectedConversation.id &&
+            renameLocation === 'header' ? (
+              renameEditor(selectedConversation)
+            ) : (
+              <h2 aria-label={selectedConversation?.title}>
+                {selectedConversation ? (
+                  <button
+                    className="thread-title-button"
+                    type="button"
+                    aria-label={`Rename ${selectedConversation.title} from thread header`}
+                    onClick={() => beginRename(selectedConversation, 'header')}
+                  >
+                    {selectedConversation.title}
+                  </button>
+                ) : (
+                  'No conversation selected'
+                )}
+              </h2>
+            )}
           </div>
         </header>
 
