@@ -73,10 +73,6 @@ class ConversationCreateRequest(BaseModel):
     title: str | None = None
 
 
-class ConversationRenameRequest(BaseModel):
-    title: str | None = None
-
-
 class ChatRequest(BaseModel):
     conversation_id: str
     message: str = Field(min_length=1)
@@ -295,33 +291,6 @@ def get_conversation(
         conversation = get_conversation_or_404(conn, conversation_id)
         messages = list_messages(conn, conversation_id)
     return ConversationDetail(conversation=conversation, messages=messages)
-
-
-@app.patch("/conversations/{conversation_id}", response_model=ConversationSummary)
-def rename_conversation(
-    conversation_id: str,
-    request: ConversationRenameRequest,
-    db_path: str = Depends(get_db_path),
-) -> ConversationSummary:
-    if request.title is None:
-        raise HTTPException(status_code=400, detail="Title is required.")
-
-    title = request.title.strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="Title must not be blank.")
-
-    updated_at = utc_now()
-    with open_db(db_path) as conn:
-        get_conversation_or_404(conn, conversation_id)
-        conn.execute(
-            """
-            UPDATE conversations
-            SET title = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (title, updated_at, conversation_id),
-        )
-        return get_conversation_or_404(conn, conversation_id)
 
 
 @app.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
