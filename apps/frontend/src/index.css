@@ -106,6 +106,10 @@ h2 {
   align-items: stretch;
 }
 
+.conversation-list li.is-renaming {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .conversation-button {
   display: grid;
   gap: 3px;
@@ -151,17 +155,18 @@ h2 {
 
 .rename-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
   min-width: 0;
 }
 
 .rename-form input {
+  width: 100%;
   padding: 8px 10px;
 }
 
 .rename-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
