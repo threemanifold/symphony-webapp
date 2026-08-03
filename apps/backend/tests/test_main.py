@@ -1,6 +1,5 @@
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
-from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
@@ -121,70 +120,6 @@ def test_create_conversation_defaults_blank_title(client: TestClient) -> None:
 
     assert resp.status_code == 201
     assert_summary(resp.json()["conversation"], "New chat")
-
-
-def test_rename_conversation_updates_title_and_summary_views(
-    client: TestClient,
-) -> None:
-    created = client.post("/conversations", json={"title": "Project notes"}).json()[
-        "conversation"
-    ]
-    conversation_id = created["id"]
-
-    renamed = client.patch(
-        f"/conversations/{conversation_id}",
-        json={"title": "  Renamed   Project  Notes  "},
-    )
-
-    assert renamed.status_code == 200
-    renamed_body = renamed.json()
-    assert renamed_body == {
-        **created,
-        "title": "Renamed   Project  Notes",
-        "updated_at": renamed_body["updated_at"],
-    }
-    assert renamed_body["created_at"] == created["created_at"]
-    assert datetime.fromisoformat(renamed_body["updated_at"]) > datetime.fromisoformat(
-        created["updated_at"]
-    )
-
-    fetched = client.get(f"/conversations/{conversation_id}")
-    assert fetched.status_code == 200
-    assert fetched.json()["conversation"] == renamed_body
-
-    listed = client.get("/conversations")
-    assert listed.status_code == 200
-    assert listed.json()["conversations"] == [renamed_body]
-
-
-@pytest.mark.parametrize("title", ["", "   ", "\t\n"])
-def test_rename_conversation_rejects_blank_title(
-    client: TestClient, title: str
-) -> None:
-    conversation_id = client.post("/conversations").json()["conversation"]["id"]
-
-    resp = client.patch(f"/conversations/{conversation_id}", json={"title": title})
-
-    assert resp.status_code == 400
-    assert "title" in resp.json()["detail"].lower()
-
-
-def test_rename_conversation_rejects_missing_title(client: TestClient) -> None:
-    conversation_id = client.post("/conversations").json()["conversation"]["id"]
-
-    resp = client.patch(f"/conversations/{conversation_id}", json={})
-
-    assert resp.status_code == 400
-    assert resp.json() == {"detail": "Title is required."}
-
-
-def test_rename_conversation_returns_404_for_unknown_id(client: TestClient) -> None:
-    resp = client.patch(
-        "/conversations/missing", json={"title": "Renamed Project Notes"}
-    )
-
-    assert resp.status_code == 404
-    assert resp.json() == {"detail": "Conversation not found."}
 
 
 def test_delete_conversation_cascades_messages(client: TestClient) -> None:
