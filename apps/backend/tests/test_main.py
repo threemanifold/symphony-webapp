@@ -310,6 +310,83 @@ def test_missing_conversation_returns_404(client: TestClient) -> None:
     assert chat_resp.json() == {"detail": "Conversation not found."}
 
 
+def test_rename_conversation_happy_path(client: TestClient) -> None:
+    created = client.post("/conversations", json={"title": "Original"}).json()[
+        "conversation"
+    ]
+    conversation_id = created["id"]
+
+    resp = client.patch(
+        f"/conversations/{conversation_id}", json={"title": "  Renamed title  "}
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == conversation_id
+    assert body["title"] == "Renamed title"
+    assert body["created_at"] == created["created_at"]
+    assert body["updated_at"] >= created["updated_at"]
+    assert set(body.keys()) == {"id", "title", "created_at", "updated_at"}
+
+
+def test_rename_conversation_persists_new_title(client: TestClient) -> None:
+    conversation_id = client.post(
+        "/conversations", json={"title": "Original"}
+    ).json()["conversation"]["id"]
+
+    rename_resp = client.patch(
+        f"/conversations/{conversation_id}", json={"title": "Persisted"}
+    )
+    assert rename_resp.status_code == 200
+
+    fetched = client.get(f"/conversations/{conversation_id}")
+    assert fetched.status_code == 200
+    conversation = fetched.json()["conversation"]
+    assert conversation["title"] == "Persisted"
+    assert conversation["updated_at"] == rename_resp.json()["updated_at"]
+
+
+def test_rename_conversation_rejects_empty_title(client: TestClient) -> None:
+    conversation_id = client.post("/conversations").json()["conversation"]["id"]
+
+    resp = client.patch(f"/conversations/{conversation_id}", json={"title": ""})
+
+    assert resp.status_code == 422
+
+
+def test_rename_conversation_rejects_whitespace_only_title(
+    client: TestClient,
+) -> None:
+    conversation_id = client.post("/conversations").json()["conversation"]["id"]
+
+    resp = client.patch(f"/conversations/{conversation_id}", json={"title": "   "})
+
+    assert resp.status_code == 422
+
+
+def test_rename_conversation_rejects_missing_title(client: TestClient) -> None:
+    conversation_id = client.post("/conversations").json()["conversation"]["id"]
+
+    resp = client.patch(f"/conversations/{conversation_id}", json={})
+
+    assert resp.status_code == 422
+
+
+def test_rename_conversation_rejects_null_title(client: TestClient) -> None:
+    conversation_id = client.post("/conversations").json()["conversation"]["id"]
+
+    resp = client.patch(f"/conversations/{conversation_id}", json={"title": None})
+
+    assert resp.status_code == 422
+
+
+def test_rename_conversation_returns_404_for_unknown_id(client: TestClient) -> None:
+    resp = client.patch("/conversations/does-not-exist", json={"title": "Anything"})
+
+    assert resp.status_code == 404
+    assert resp.json() == {"detail": "Conversation not found."}
+
+
 def test_chat_rejects_blank_message(client: TestClient) -> None:
     conversation_id = client.post("/conversations").json()["conversation"]["id"]
 
