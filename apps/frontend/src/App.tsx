@@ -485,48 +485,62 @@ function App() {
           <p className="sidebar-status">Unable to load conversations. Try again.</p>
         ) : filteredConversations.length > 0 ? (
           <ol className="conversation-list">
-            {filteredConversations.map((conversation) => (
-              <li key={conversation.id}>
-                {renamingConversationId === conversation.id &&
-                renameLocation === 'sidebar' ? (
-                  renameEditor(conversation)
-                ) : (
-                  <button
-                    className="conversation-button"
-                    type="button"
-                    aria-label={`Open ${conversation.title}`}
-                    aria-current={
-                      selectedConversationId === conversation.id
-                        ? 'page'
-                        : undefined
-                    }
-                    onClick={() => setSelectedConversationId(conversation.id)}
-                  >
-                    <span>{conversation.title}</span>
-                    <time dateTime={conversation.updated_at}>
-                      {formatConversationTime(conversation.updated_at)}
-                    </time>
-                  </button>
-                )}
-                <button
-                  className="rename-button"
-                  type="button"
-                  aria-label={`Rename ${conversation.title}`}
-                  onClick={() => beginRename(conversation, 'sidebar')}
-                  disabled={isRenaming}
+            {filteredConversations.map((conversation) => {
+              const isRenamingThisRow =
+                renamingConversationId === conversation.id &&
+                renameLocation === 'sidebar';
+
+              return (
+                <li
+                  key={conversation.id}
+                  className={isRenamingThisRow ? 'is-renaming' : undefined}
                 >
-                  Rename
-                </button>
-                <button
-                  className="delete-button"
-                  type="button"
-                  aria-label={`Delete ${conversation.title}`}
-                  onClick={() => void deleteConversation(conversation.id)}
-                >
-                  Delete
-                </button>
-              </li>
-            ))}
+                  {isRenamingThisRow ? (
+                    renameEditor(conversation)
+                  ) : (
+                    <>
+                      <button
+                        className="conversation-button"
+                        type="button"
+                        aria-label={`Open ${conversation.title}`}
+                        aria-current={
+                          selectedConversationId === conversation.id
+                            ? 'page'
+                            : undefined
+                        }
+                        onClick={() =>
+                          setSelectedConversationId(conversation.id)
+                        }
+                      >
+                        <span>{conversation.title}</span>
+                        <time dateTime={conversation.updated_at}>
+                          {formatConversationTime(conversation.updated_at)}
+                        </time>
+                      </button>
+                      <button
+                        className="rename-button"
+                        type="button"
+                        aria-label={`Rename ${conversation.title}`}
+                        onClick={() => beginRename(conversation, 'sidebar')}
+                        disabled={isRenaming}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        className="delete-button"
+                        type="button"
+                        aria-label={`Delete ${conversation.title}`}
+                        onClick={() =>
+                          void deleteConversation(conversation.id)
+                        }
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </li>
+              );
+            })}
           </ol>
         ) : conversations.length > 0 ? (
           <p className="sidebar-status">No conversations match this search.</p>
