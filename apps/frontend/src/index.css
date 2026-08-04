@@ -101,13 +101,9 @@ h2 {
 
 .conversation-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
   align-items: stretch;
-}
-
-.conversation-list li.is-renaming {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 .conversation-button {
@@ -142,8 +138,7 @@ h2 {
   font-size: 0.85rem;
 }
 
-.delete-button,
-.rename-button {
+.delete-button {
   align-self: center;
   min-height: 34px;
   border: 1px solid #d9e2ec;
@@ -151,48 +146,6 @@ h2 {
   padding: 0 10px;
   color: #486581;
   background: #ffffff;
-}
-
-.rename-form {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.rename-form input {
-  width: 100%;
-  padding: 8px 10px;
-}
-
-.rename-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.rename-actions button {
-  min-height: 34px;
-}
-
-.rename-error {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: #b91c1c;
-  font-size: 0.85rem;
-}
-
-.thread-title-button {
-  border: 0;
-  padding: 0;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  cursor: text;
-}
-
-.thread-header .rename-form {
-  margin-top: 4px;
 }
 
 .chat-thread {

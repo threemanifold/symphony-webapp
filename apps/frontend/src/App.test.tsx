@@ -130,26 +130,6 @@ function createPersistentChatApi() {
       return { ok: true } as Response;
     }
 
-    if (conversationMatch && method === 'PATCH') {
-      const conversation = conversations.find(
-        (item) => item.id === conversationMatch[1],
-      );
-      if (!conversation) {
-        return { ok: false, status: 404 } as Response;
-      }
-
-      const body = JSON.parse(init?.body?.toString() ?? '{}') as {
-        title?: string;
-      };
-      if (!body.title?.trim()) {
-        return { ok: false, status: 422 } as Response;
-      }
-
-      conversation.title = body.title.trim();
-      conversation.updated_at = now();
-      return okJson(conversation);
-    }
-
     if (path === '/chat' && method === 'POST') {
       const body = JSON.parse(init?.body?.toString() ?? '{}') as {
         conversation_id: string;
@@ -431,94 +411,6 @@ describe('App', () => {
       },
       body: JSON.stringify({}),
     });
-  });
-
-  it('renames a conversation from the sidebar and updates both title surfaces', async () => {
-    const renamedConversation = {
-      ...firstConversation,
-      title: 'Renamed chat',
-      updated_at: '2026-05-10T16:00:00.000Z',
-    };
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
-      .mockResolvedValueOnce(
-        okJson({ conversation: firstConversation, messages: [] }),
-      )
-      .mockResolvedValueOnce(okJson(renamedConversation));
-
-    render(<App />);
-
-    await screen.findByText('No messages yet.');
-    fireEvent.click(screen.getByRole('button', { name: 'Rename First chat' }));
-    const input = screen.getByRole('textbox', { name: 'Rename First chat' });
-    expect(input).toHaveValue('First chat');
-    fireEvent.change(input, { target: { value: '  Renamed chat  ' } });
-    fireEvent.submit(input.closest('form')!);
-
-    await waitFor(() => {
-      expect(screen.getAllByText('Renamed chat')).toHaveLength(2);
-    });
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      `/conversations/${firstConversation.id}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Renamed chat' }),
-      },
-    );
-  });
-
-  it('rejects whitespace-only titles and cancels rename with Escape', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
-      .mockResolvedValueOnce(
-        okJson({ conversation: firstConversation, messages: [] }),
-      );
-
-    render(<App />);
-
-    await screen.findByText('No messages yet.');
-    fireEvent.click(screen.getByRole('button', { name: 'Rename First chat' }));
-    const input = screen.getByRole('textbox', { name: 'Rename First chat' });
-    fireEvent.change(input, { target: { value: '   ' } });
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    fireEvent.keyDown(input, { key: 'Escape' });
-    expect(
-      screen.queryByRole('textbox', { name: 'Rename First chat' }),
-    ).not.toBeInTheDocument();
-    expect(screen.getAllByText('First chat')).toHaveLength(2);
-  });
-
-  it('keeps the header rename editor open when the request fails', async () => {
-    vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
-      .mockResolvedValueOnce(
-        okJson({ conversation: firstConversation, messages: [] }),
-      )
-      .mockResolvedValueOnce({ ok: false, status: 500 } as Response);
-
-    render(<App />);
-
-    await screen.findByText('No messages yet.');
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: 'Rename First chat from thread header',
-      }),
-    );
-    const input = screen.getByRole('textbox', { name: 'Rename First chat' });
-    fireEvent.change(input, { target: { value: 'Retry title' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Unable to rename this conversation. Try again.',
-    );
-    expect(input).toHaveValue('Retry title');
-    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled();
   });
 
   it('sends a message with conversation_id and renders the persisted echo response', async () => {
