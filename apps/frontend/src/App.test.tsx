@@ -638,4 +638,187 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/conversations');
     expect(fetchMock).toHaveBeenCalledWith('/chat', expect.any(Object));
   });
+
+  it('toggles rename edit mode via the button, Escape key, and Cancel without firing a request', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      );
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+    const initialFetchCount = fetchMock.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename First chat' }));
+
+    const renameInput = screen.getByLabelText('New title for First chat');
+    expect(renameInput).toHaveValue('First chat');
+
+    fireEvent.keyDown(renameInput, { key: 'Escape' });
+
+    expect(screen.queryByLabelText('New title for First chat')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Rename First chat' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename First chat' }));
+
+    fireEvent.change(screen.getByLabelText('New title for First chat'), {
+      target: { value: 'something else' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByLabelText('New title for First chat')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open First chat' }),
+    ).toBeInTheDocument();
+    expect(fetchMock.mock.calls.length).toBe(initialFetchCount);
+  });
+
+  it('saves the renamed title on Enter, sends a trimmed PATCH, and updates sidebar + thread header', async () => {
+    const renamedConversation = {
+      ...firstConversation,
+      title: 'Renamed chat',
+      updated_at: '2026-05-10T18:00:00.000Z',
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      )
+      .mockResolvedValueOnce(okJson(renamedConversation));
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'First chat' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename First chat' }));
+    const renameInput = screen.getByLabelText('New title for First chat');
+    fireEvent.change(renameInput, { target: { value: '  Renamed chat  ' } });
+    fireEvent.keyDown(renameInput, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        3,
+        `/conversations/${firstConversation.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'Renamed chat' }),
+        },
+      );
+    });
+
+    expect(
+      await screen.findByRole('button', { name: 'Open Renamed chat' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Renamed chat' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('New title for Renamed chat')).not.toBeInTheDocument();
+  });
+
+  it('rejects blank/whitespace input inline without firing a PATCH', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      );
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+    const fetchCallsBefore = fetchMock.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename First chat' }));
+    const renameInput = screen.getByLabelText('New title for First chat');
+    fireEvent.change(renameInput, { target: { value: '   ' } });
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    fireEvent.keyDown(renameInput, { key: 'Enter' });
+
+    expect(
+      await screen.findByText('Title must not be blank.'),
+    ).toBeInTheDocument();
+    expect(fetchMock.mock.calls.length).toBe(fetchCallsBefore);
+    expect(screen.getByLabelText('New title for First chat')).toBeInTheDocument();
+  });
+
+  it('keeps the row in edit mode and surfaces the server 400 detail', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okJson({ conversations: [firstConversation] }))
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      )
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({ detail: 'Title must not be blank.' }),
+      } as unknown as Response);
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename First chat' }));
+    const renameInput = screen.getByLabelText('New title for First chat');
+    fireEvent.change(renameInput, { target: { value: 'still fine' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(
+      await screen.findByText('Title must not be blank.'),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('New title for First chat')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'First chat' }),
+    ).toBeInTheDocument();
+  });
+
+  it('removes the row from the local list on server 404', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        okJson({ conversations: [firstConversation, secondConversation] }),
+      )
+      .mockResolvedValueOnce(
+        okJson({ conversation: firstConversation, messages: [] }),
+      )
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ detail: 'Conversation not found.' }),
+      } as unknown as Response)
+      .mockResolvedValueOnce(
+        okJson({ conversation: secondConversation, messages: [] }),
+      );
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: 'Open First chat' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename First chat' }));
+    fireEvent.change(screen.getByLabelText('New title for First chat'), {
+      target: { value: 'gone' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: 'Open First chat' }),
+      ).not.toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole('button', { name: 'Open Second chat' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('New title for First chat')).not.toBeInTheDocument();
+  });
 });
