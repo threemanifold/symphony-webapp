@@ -122,6 +122,65 @@ def test_create_conversation_defaults_blank_title(client: TestClient) -> None:
     assert_summary(resp.json()["conversation"], "New chat")
 
 
+def test_patch_conversation_renames_and_bumps_updated_at(client: TestClient) -> None:
+    created = client.post("/conversations", json={"title": "Old title"}).json()[
+        "conversation"
+    ]
+    conversation_id = created["id"]
+
+    resp = client.patch(
+        f"/conversations/{conversation_id}", json={"title": "  Renamed title  "}
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == conversation_id
+    assert body["title"] == "Renamed title"
+    assert body["created_at"] == created["created_at"]
+    assert body["updated_at"] > created["created_at"]
+    assert body["updated_at"] > created["updated_at"]
+
+    fetched = client.get(f"/conversations/{conversation_id}").json()["conversation"]
+    assert fetched["title"] == "Renamed title"
+    assert fetched["created_at"] == created["created_at"]
+    assert fetched["updated_at"] == body["updated_at"]
+
+    listed = client.get("/conversations").json()["conversations"]
+    assert any(
+        item["id"] == conversation_id and item["title"] == "Renamed title"
+        for item in listed
+    )
+
+
+@pytest.mark.parametrize("blank_title", ["", "   "])
+def test_patch_conversation_rejects_blank_title(
+    client: TestClient, blank_title: str
+) -> None:
+    created = client.post("/conversations", json={"title": "Keep me"}).json()[
+        "conversation"
+    ]
+    conversation_id = created["id"]
+
+    resp = client.patch(
+        f"/conversations/{conversation_id}", json={"title": blank_title}
+    )
+
+    assert resp.status_code == 400
+    assert resp.json() == {"detail": "Title must not be blank."}
+
+    unchanged = client.get(f"/conversations/{conversation_id}").json()["conversation"]
+    assert unchanged["title"] == "Keep me"
+    assert unchanged["created_at"] == created["created_at"]
+    assert unchanged["updated_at"] == created["updated_at"]
+
+
+def test_patch_conversation_unknown_id_returns_404(client: TestClient) -> None:
+    resp = client.patch("/conversations/missing", json={"title": "Anything"})
+
+    assert resp.status_code == 404
+    assert resp.json() == {"detail": "Conversation not found."}
+
+
 def test_delete_conversation_cascades_messages(client: TestClient) -> None:
     conversation_id = client.post("/conversations").json()["conversation"]["id"]
     status_code, body = consume_sse_chat(client, conversation_id, "hello")

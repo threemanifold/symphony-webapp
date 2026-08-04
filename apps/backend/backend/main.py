@@ -73,6 +73,10 @@ class ConversationCreateRequest(BaseModel):
     title: str | None = None
 
 
+class ConversationUpdateRequest(BaseModel):
+    title: str
+
+
 class ChatRequest(BaseModel):
     conversation_id: str
     message: str = Field(min_length=1)
@@ -291,6 +295,31 @@ def get_conversation(
         conversation = get_conversation_or_404(conn, conversation_id)
         messages = list_messages(conn, conversation_id)
     return ConversationDetail(conversation=conversation, messages=messages)
+
+
+@app.patch("/conversations/{conversation_id}", response_model=ConversationSummary)
+def update_conversation(
+    conversation_id: str,
+    request: ConversationUpdateRequest,
+    db_path: str = Depends(get_db_path),
+) -> ConversationSummary:
+    trimmed = request.title.strip()
+    if not trimmed:
+        raise HTTPException(status_code=400, detail="Title must not be blank.")
+
+    updated_at = utc_now()
+    with open_db(db_path) as conn:
+        existing = get_conversation_or_404(conn, conversation_id)
+        conn.execute(
+            "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
+            (trimmed, updated_at, conversation_id),
+        )
+    return ConversationSummary(
+        id=existing.id,
+        title=trimmed,
+        created_at=existing.created_at,
+        updated_at=updated_at,
+    )
 
 
 @app.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
